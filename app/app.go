@@ -10,8 +10,10 @@ import (
 	"github.com/hm-service/scope-status/store"
 )
 
+// SourceFileName 是配置在数据目录里的固定名字：路径没有第二个来源。
+const SourceFileName = "source.yaml"
+
 type Config struct {
-	SourceFile     string
 	DataDir        string
 	StreamInterval time.Duration
 	MaxUploadBytes int64
@@ -24,25 +26,26 @@ type App struct {
 	Monitor    *Monitor
 }
 
-// New 建应用容器：读配置、建数据目录、收紧权限，任何一步不成立就直接失败。
+// New 建应用容器：建数据目录、收紧权限、读配置，任何一步不成立就直接失败。
 func New(cfg Config) (*App, error) {
-	source, err := store.LoadSource(cfg.SourceFile)
-	if err != nil {
-		return nil, err
-	}
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return nil, err
 	}
 	if err := os.Chmod(cfg.DataDir, 0o700); err != nil {
 		return nil, err
 	}
+	sourcePath := filepath.Join(cfg.DataDir, SourceFileName)
+	source, err := store.LoadSource(sourcePath)
+	if err != nil {
+		return nil, err
+	}
 	messages := store.NewMessageStore(filepath.Join(cfg.DataDir, "messages"), cfg.MaxUploadBytes)
 	if err := messages.Ensure(); err != nil {
 		return nil, err
 	}
-	monitor := NewMonitor(source, cfg.SourceFile, cfg.StreamInterval)
+	monitor := NewMonitor(source, sourcePath, cfg.StreamInterval)
 	return &App{
-		SourcePath: cfg.SourceFile,
+		SourcePath: sourcePath,
 		DataDir:    cfg.DataDir,
 		Messages:   NewMessageService(messages, monitor),
 		Monitor:    monitor,

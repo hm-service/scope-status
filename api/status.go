@@ -55,7 +55,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, SnapshotView(snapshot, langOf(r), reused))
 }
 
-// GET|POST /api/reload：重读 SOURCE_FILE，然后立刻按新配置探一次。
+// GET|POST /api/reload：重读数据目录里的配置，然后立刻按新配置探一次。
 func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 	source, err := s.opts.App.Monitor.Reload()
 	if err != nil {

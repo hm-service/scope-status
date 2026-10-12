@@ -209,7 +209,7 @@ func (m *Monitor) Refresh() (*core.Snapshot, error) {
 	return snapshot, nil
 }
 
-// Reload 重读 SOURCE_FILE：先解析新的，失败就原样保留旧配置。
+// Reload 重读数据目录里的配置：先解析新的，失败就原样保留旧配置。
 func (m *Monitor) Reload() (*core.Source, error) {
 	source, err := store.LoadSource(m.sourcePath)
 	if err != nil {

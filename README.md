@@ -65,7 +65,7 @@ DATA_DIR=$PWD/.data go run .          # 配置默认读 .data/source.yaml
 cp source.example.yaml .data/source.yaml     # 先抄一份示例，再改成自己的
 ```
 
-配置就在数据目录根（`DATA_DIR/source.yaml`，容器里是 `/data/source.yaml`）：里面通常有密码之类的敏感值，
+配置路径写死成 `<DATA_DIR>/source.yaml`（容器里是 `/data/source.yaml`），没有环境变量能改它。里面通常有密码之类的敏感值，
 所以整个数据目录不入库，入库的只有 `source.example.yaml` 这份示例。
 
 顶层是 mapping，四块：`friends` / `services` / `links` / `categories`（`probe`、`title` 可选）。顶层直接写数组等价于 `friends`。
@@ -116,8 +116,7 @@ links:
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `SOURCE_FILE` | `<DATA_DIR>/source.yaml` | 配置文件路径，默认就在数据目录根 |
-| `DATA_DIR` | `/data` | 运行状态目录；消息落在 `<DATA_DIR>/messages` |
+| `DATA_DIR` | `/data` | 数据目录：配置 `<DATA_DIR>/source.yaml` 与消息 `<DATA_DIR>/messages` |
 | `TZ` | 系统默认 | 时区，影响日志时间戳与消息文件名 |
 | `HOST` / `PORT` | `127.0.0.1` / `8080` | 监听地址与端口 |
 | `READYZ_TOKEN` | 空 | 非空时 `/readyz` 必须带 `?token=` |

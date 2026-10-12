@@ -6,8 +6,7 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 
 | 环境变量                 | 默认值                     | 说明                                                       |
 | ------------------------ | -------------------------- | ---------------------------------------------------------- |
-| `SOURCE_FILE`            | `<DATA_DIR>/source.yaml`   | 条目 / 服务 / 网站的配置文件，默认就在数据目录根          |
-| `DATA_DIR`               | `/data`                    | 运行状态目录；消息落在这里的 `messages/`                   |
+| `DATA_DIR`               | `/data`                    | 数据目录：配置 `source.yaml` 与消息 `messages/` 都在这里   |
 | `TZ`                     | `Asia/Shanghai`            | 时区；影响日志时间戳与消息文件名                           |
 | `HOST`                   | `127.0.0.1`                | 监听地址                                                   |
 | `PORT`                   | `8080`                     | 监听端口                                                   |
@@ -19,10 +18,10 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 | `GOMEMLIMIT`             | `128MiB`                   | Go GC 阈值，由运行时自己读                                 |
 | `MAX_UPLOAD_BYTES`       | `1073741824`               | 单个附件上限（1 GiB）                                      |
 
-- 配置与状态同目录：人写的 `SOURCE_FILE` 默认落在 `DATA_DIR` 根（`<DATA_DIR>/source.yaml`），运行状态也在同一个目录里；
-  容器把配置当 ConfigMap 挂在数据目录里，状态挂 PVC。
+- 配置与状态同目录，配置路径写死为 `<DATA_DIR>/source.yaml`：容器把配置当 ConfigMap 挂在数据目录里，
+  状态挂 PVC；挂一个卷就是应用的全部。
 - 启动即失败：配置文件不存在 / 解析不通过 / 数据目录建不出来，进程直接报错退出，不做任何降级。
-- `SOURCE_FILE` 改成别的路径后，旧路径的改动不再生效，界面上显示的永远是当前生效路径。
+- 配置路径没有第二个来源，也没有环境变量能改它；改 `DATA_DIR` 就等于改配置路径，界面上与 `/api/health` 里显示的永远是当前生效的那一份。
 
 ## 2. 页面
 
@@ -50,7 +49,7 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 | `GET`         | `/api/status`                         | 当前共享快照；还没有快照时 `204`                          |
 | `GET`         | `/api/status?force=1`                 | 强制探一次再回                                          |
 | `GET`         | `/api/events`                         | SSE：先补一帧 `messages`，再推 `snapshot` / `messages`    |
-| `POST` `GET`  | `/api/reload`                         | 重读 `SOURCE_FILE`，成功则立刻探一次                     |
+| `POST` `GET`  | `/api/reload`                         | 重读 `<DATA_DIR>/source.yaml`，成功则立刻探一次          |
 | `GET`         | `/api/health`                         | 运行状态与计数                                          |
 | `GET`         | `/api/messages`                       | 未删除消息列表（口令消息未解锁只给 `id` / `createdAt`）  |
 | `POST`        | `/api/messages`                       | 新建；`201`                                             |
@@ -75,7 +74,7 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 
 ```json
 {
-  "title": "领域状态",
+  "title": "Scope Status",
   "method": "icmp",
   "generatedAt": "2026-10-12T23:35:03+08:00",
   "durationMs": 412.5,
@@ -93,7 +92,7 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
           "addresses": [
             { "address": "10.0.0.2", "status": "up", "latencyMs": 12.4, "detail": null, "method": "icmp" }
           ],
-          "properties": { "MC皮肤站密码": "…" }
+          "properties": { "面板账号": "example-pass" }
         }
       ]
     }
@@ -145,9 +144,10 @@ data: {…快照，多一个 "reused": false…}
 
 ## 4. 存储
 
-### 4.1. `SOURCE_FILE`
+### 4.1. `<DATA_DIR>/source.yaml`
 
-`DATA_DIR/source.yaml` 是本机手写的，里面通常有密码，整个数据目录都不入库；入库的只有 `source.example.yaml` 这份示例。
+这份文件是本机手写的，里面通常有密码，所以整个数据目录都不入库；入库的只有 `source.example.yaml` 这份示例。
+路径固定成 `DATA_DIR` 根下的 `source.yaml`，名字不再是可配置项。
 
 顶层 mapping，四块：`friends` / `services` / `links` / `categories`（`probe`、`title` 可选）。
 顶层直接写数组等价于 `friends`。字符串字段一律要求非空，类型不对就报错，不猜、不转换。
@@ -156,7 +156,7 @@ data: {…快照，多一个 "reused": false…}
 | -------------- | -------- | ---------------------------------------------------------- |
 | `name`         | 三者     | 非空字符串，同一页内不要求唯一                              |
 | `addresses`    | friends  | 非空数组，每项 IP 或域名（可带 `:端口`），去重              |
-| `category`     | 三者     | 字符串，转小写、空格转 `-`；缺省 `friend` / 服务是 `服务`   |
+| `category`     | 三者     | 字符串，转小写、空格转 `-`；缺省 `friend` / 服务是 `service` |
 | `properties`   | 三者     | 名称 → 值的映射，按书写顺序展示；值可以是数字、布尔          |
 | `note`         | friends  | 备注                                                        |
 | `host` `port`  | services | `host` 非空；`port` 1–65535                                 |

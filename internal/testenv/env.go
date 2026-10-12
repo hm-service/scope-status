@@ -1,5 +1,5 @@
 // Package testenv 是测试脚手架：临时数据目录、临时配置文件、现成的测试服务。
-// 测试一律不许碰真实的 SOURCE_FILE 与 DATA_DIR。
+// 测试一律不许碰真实的数据目录。
 package testenv
 
 import (
@@ -64,8 +64,11 @@ func New(t *testing.T, source string) *Env {
 // NewWith 造一个临时实例：配置写进临时目录，数据目录也是临时的，服务挂在 httptest 上。
 func NewWith(t *testing.T, source string, opts Options) *Env {
 	t.Helper()
-	root := t.TempDir()
-	sourceFile := filepath.Join(root, "source.yaml")
+	dataDir := filepath.Join(t.TempDir(), "data")
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		t.Fatalf("建不下测试数据目录：%v", err)
+	}
+	sourceFile := filepath.Join(dataDir, app.SourceFileName)
 	if err := os.WriteFile(sourceFile, []byte(source), 0o600); err != nil {
 		t.Fatalf("写不下测试配置：%v", err)
 	}
@@ -73,9 +76,7 @@ func NewWith(t *testing.T, source string, opts Options) *Env {
 	if maxUpload == 0 {
 		maxUpload = 1024 * 1024
 	}
-	dataDir := filepath.Join(root, "data")
 	application, err := app.New(app.Config{
-		SourceFile:     sourceFile,
 		DataDir:        dataDir,
 		StreamInterval: opts.StreamInterval,
 		MaxUploadBytes: maxUpload,

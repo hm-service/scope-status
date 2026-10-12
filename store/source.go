@@ -1,4 +1,4 @@
-// Package store 是盘上存储：SOURCE_FILE 的读取，以及 data 目录下消息与附件池的读写。
+// Package store 是盘上存储：数据目录里配置文件的读取，以及消息与附件池的读写。
 package store
 
 import (
@@ -10,7 +10,7 @@ import (
 	"github.com/hm-service/scope-status/i18n"
 )
 
-// LoadSource 读并解析 SOURCE_FILE；文件不在、读不了、解析不过都直接报错，不做兜底。
+// LoadSource 读并解析配置文件；文件不在、读不了、解析不过都直接报错，不做兜底。
 func LoadSource(path string) (*core.Source, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

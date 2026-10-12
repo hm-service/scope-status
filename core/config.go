@@ -186,7 +186,7 @@ func (s *Source) Category(id string) Category {
 	return builtinCategory(id)
 }
 
-// ParseSource 解析 SOURCE_FILE 的内容；顶层数组等价于 friends 列表。
+// ParseSource 解析配置文件的内容；顶层数组等价于 friends 列表。
 func ParseSource(name string, data []byte) (*Source, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {

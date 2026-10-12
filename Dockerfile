@@ -57,7 +57,6 @@ COPY --from=builder /build/app.bin .
 
 ENV TZ=Asia/Shanghai \
     DATA_DIR=/data \
-    SOURCE_FILE=/data/source.yaml \
     HOST=0.0.0.0 \
     PORT=8080
 

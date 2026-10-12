@@ -12,7 +12,6 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -24,7 +23,6 @@ import (
 )
 
 type envConfig struct {
-	SourceFile           string
 	DataDir              string
 	Host                 string
 	Port                 int
@@ -57,7 +55,6 @@ func run() error {
 		return err
 	}
 	application, err := app.New(app.Config{
-		SourceFile:     cfg.SourceFile,
 		DataDir:        cfg.DataDir,
 		StreamInterval: cfg.StreamInterval,
 		MaxUploadBytes: cfg.MaxUploadBytes,
@@ -94,7 +91,7 @@ func run() error {
 	}
 	logger.Info("listening",
 		"addr", server.Addr,
-		"sourceFile", cfg.SourceFile,
+		"sourceFile", application.SourcePath,
 		"dataDir", cfg.DataDir,
 		"streamIntervalSeconds", cfg.StreamInterval.Seconds(),
 		"maxUploadBytes", cfg.MaxUploadBytes,
@@ -153,7 +150,6 @@ func loadEnv() (envConfig, error) {
 	// 配置与状态同放一个目录：DATA_DIR 挂到哪，配置就在哪
 	dataDir := envString("DATA_DIR", "/data")
 	return envConfig{
-		SourceFile:           envString("SOURCE_FILE", filepath.Join(dataDir, "source.yaml")),
 		DataDir:              dataDir,
 		Host:                 envString("HOST", "127.0.0.1"),
 		Port:                 port,
