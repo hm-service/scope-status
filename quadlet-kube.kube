@@ -1,0 +1,18 @@
+[Unit]
+Description=%p application
+
+[Kube]
+Yaml=./%p.yaml
+Network=<proxy-network>
+LogDriver=journald
+ExitCodePropagation=any
+KubeDownForce=false
+
+[Service]
+Restart=always
+RestartSec=5
+TimeoutStartSec=900
+TimeoutStopSec=90
+
+[Install]
+WantedBy=default.target

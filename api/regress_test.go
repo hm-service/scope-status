@@ -1,0 +1,87 @@
+package api_test
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/hm-service/scope-status/internal/testenv"
+)
+
+// 回归：上传不带 ?name= 时要 400，不能把空名字当成一个附件存下来。
+func TestRegressUploadWithoutName(t *testing.T) {
+	env := testenv.New(t, testenv.DefaultSource)
+	response := call(t, env, http.MethodPut, "/api/messages/files", "content")
+	if response.status != http.StatusBadRequest {
+		t.Fatalf("状态码 = %d（%s）", response.status, response.body)
+	}
+	if !strings.Contains(string(response.body), "缺少附件名") {
+		t.Fatalf("错误文案 = %q", response.body)
+	}
+}
+
+// 回归：口令消息的附件也要口令，没验过口令时连二进制都不该给。
+func TestRegressKeyMessageAttachmentIsGated(t *testing.T) {
+	env := testenv.New(t, testenv.DefaultSource)
+	uploaded := decode[struct {
+		SHA256 string `json:"sha256"`
+	}](t, call(t, env, http.MethodPut, "/api/messages/files?name=a.txt", "top secret").body)
+	created := decode[messageView](t, call(t, env, http.MethodPost, "/api/messages",
+		fmt.Sprintf(`{"kind":"key","text":"秘密","key":"s3cret","attachments":[{"sha256":"%s","name":"a.txt"}]}`, uploaded.SHA256)).body)
+
+	path := "/api/messages/files/" + uploaded.SHA256 + "?id=" + created.ID
+	if response := call(t, env, http.MethodGet, path, ""); response.status != http.StatusBadRequest {
+		t.Fatalf("没带口令应该 400，拿到 %d", response.status)
+	}
+	if response := call(t, env, http.MethodGet, path+"&key=wrong", ""); response.status != http.StatusForbidden {
+		t.Fatalf("口令不对应该 403，拿到 %d", response.status)
+	}
+	response := call(t, env, http.MethodGet, path+"&key=s3cret", "")
+	if response.status != http.StatusOK || string(response.body) != "top secret" {
+		t.Fatalf("口令对了应该给文件：%d %q", response.status, response.body)
+	}
+	// 列表里也不能出现附件名
+	list := decode[messagesPayload](t, call(t, env, http.MethodGet, "/api/messages", "").body)
+	if list.Messages[0].Locked == false || list.Messages[0].Attachments != nil {
+		t.Fatalf("锁定消息不该带附件：%+v", list.Messages[0])
+	}
+}
+
+// 回归：还没有快照时的 hello 帧只带推送间隔，不要塞别的字段。
+func TestRegressHelloFrameShape(t *testing.T) {
+	env := testenv.NewWith(t, testenv.DefaultSource, testenv.Options{StreamInterval: time.Minute})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, env.BaseURL+"/api/events", nil)
+	if err != nil {
+		t.Fatalf("造请求失败：%v", err)
+	}
+	response, err := env.Client.Do(request)
+	if err != nil {
+		t.Fatalf("连 SSE 失败：%v", err)
+	}
+	defer response.Body.Close()
+	reader := bufio.NewReader(response.Body)
+	if first := readEvent(t, reader); first.name != "messages" {
+		t.Fatalf("第一帧 = %q", first.name)
+	}
+	hello := readEvent(t, reader)
+	if hello.name != "hello" {
+		t.Fatalf("第二帧 = %q", hello.name)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal([]byte(hello.data), &fields); err != nil {
+		t.Fatalf("hello 帧不是 JSON：%v", err)
+	}
+	if len(fields) != 1 {
+		t.Fatalf("hello 帧只该有 streamInterval：%v", fields)
+	}
+	if fields["streamInterval"] != float64(60) {
+		t.Fatalf("streamInterval = %v", fields["streamInterval"])
+	}
+}

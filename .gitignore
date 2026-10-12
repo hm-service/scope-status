@@ -1,0 +1,42 @@
+# 约定：本地 / 临时目录一律以 . 开头（.github/ 是唯一例外，它是真正的源码）
+
+# 构建产物（just build 的输出在 .dist/）
+/.dist/
+/frontend/dist/
+/frontend/node_modules/
+
+# Go 缓存：默认在 $HOME，$HOME 只读时由 justfile 重定向到这里
+/.go-build/
+/.gopath/
+/.go-mod-cache/
+
+# 前端包管理器的缓存（~/.cache 只读时用得上）
+/.npm-cache/
+/.pnpm-store/
+
+# 人写的配置默认在 DATA_DIR 根；仓库根这份只是保险，别提交
+/source.yaml
+
+# 运行时数据（DATA_DIR），首次启动自动重建
+/.data/
+/.data_sample/
+
+# 概念验证与验证截图、本机临时脚本
+/.scratch/
+/.shots/
+
+# 参考项目（本地 clone，只查阅、不修改）
+/.ref/
+
+# 换实现语言时归档的旧版本，只作参考、不再维护
+/.prototype/
+
+# 旧 Python 实现留下的数据目录
+/data/
+
+# agent / 编辑器 / 语言运行时自带的目录
+/.agents/
+/.claude/
+/.codex/
+/.venv/
+/.uv-cache/

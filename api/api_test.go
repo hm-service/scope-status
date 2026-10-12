@@ -1,0 +1,505 @@
+package api_test
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/hm-service/scope-status/internal/testenv"
+)
+
+type reply struct {
+	status int
+	body   []byte
+	header http.Header
+}
+
+func call(t *testing.T, env *testenv.Env, method, path, body string, headers ...[2]string) reply {
+	t.Helper()
+	request, err := http.NewRequest(method, env.BaseURL+path, strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("造请求失败：%v", err)
+	}
+	for _, header := range headers {
+		request.Header.Set(header[0], header[1])
+	}
+	if body != "" {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	response, err := env.Client.Do(request)
+	if err != nil {
+		t.Fatalf("%s %s 失败：%v", method, path, err)
+	}
+	defer response.Body.Close()
+	raw, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("读响应失败：%v", err)
+	}
+	return reply{status: response.StatusCode, body: raw, header: response.Header}
+}
+
+func decode[T any](t *testing.T, raw []byte) T {
+	t.Helper()
+	var value T
+	if err := json.Unmarshal(raw, &value); err != nil {
+		t.Fatalf("解析响应失败：%v（%s）", err, raw)
+	}
+	return value
+}
+
+func listenTCP(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("起不了监听：%v", err)
+	}
+	t.Cleanup(func() { listener.Close() })
+	return listener.Addr().String()
+}
+
+func sourceWith(address string) string {
+	return fmt.Sprintf(`
+title: 测试看板
+probe:
+  method: tcp
+  timeout: 0.5
+friends:
+  - name: 小明
+    note: 备注
+    addresses: ["%s"]
+    properties:
+      密码: secret
+      端口: 51820
+categories:
+  - id: friend
+    label: 朋友
+    order: 1
+`, address)
+}
+
+type snapshotPayload struct {
+	Title    string  `json:"title"`
+	Method   string  `json:"method"`
+	Reused   bool    `json:"reused"`
+	Duration float64 `json:"durationMs"`
+	Summary  struct {
+		Total   int `json:"total"`
+		Online  int `json:"online"`
+		Offline int `json:"offline"`
+	} `json:"summary"`
+	Groups []struct {
+		ID     string `json:"id"`
+		Label  string `json:"label"`
+		Total  int    `json:"total"`
+		Online int    `json:"online"`
+	} `json:"groups"`
+	Friends []struct {
+		Name      string `json:"name"`
+		Note      string `json:"note"`
+		Online    bool   `json:"online"`
+		LatencyMs *float64
+		Addresses []struct {
+			Address string  `json:"address"`
+			Status  string  `json:"status"`
+			Detail  *string `json:"detail"`
+		} `json:"addresses"`
+		Properties map[string]string `json:"properties"`
+	} `json:"friends"`
+	ServicesSummary struct {
+		Total int `json:"total"`
+	} `json:"servicesSummary"`
+	LinksSummary struct {
+		Total int `json:"total"`
+	} `json:"linksSummary"`
+}
+
+func TestStatusSnapshot(t *testing.T) {
+	address := listenTCP(t)
+	env := testenv.New(t, sourceWith(address))
+
+	response := call(t, env, http.MethodGet, "/api/status", "")
+	if response.status != http.StatusOK {
+		t.Fatalf("状态码 = %d（%s）", response.status, response.body)
+	}
+	if got := response.header.Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q", got)
+	}
+	payload := decode[snapshotPayload](t, response.body)
+	if payload.Title != "测试看板" || payload.Method != "tcp" || payload.Reused {
+		t.Fatalf("快照元信息不对：%+v", payload)
+	}
+	if payload.Summary.Total != 1 || payload.Summary.Online != 1 || payload.Summary.Offline != 0 {
+		t.Fatalf("概览不对：%+v", payload.Summary)
+	}
+	if len(payload.Groups) != 1 || payload.Groups[0].Label != "朋友" || payload.Groups[0].Online != 1 {
+		t.Fatalf("分组不对：%+v", payload.Groups)
+	}
+	friend := payload.Friends[0]
+	if !friend.Online || friend.Note != "备注" || friend.Addresses[0].Status != "up" {
+		t.Fatalf("条目不对：%+v", friend)
+	}
+	if friend.Properties["密码"] != "secret" || friend.Properties["端口"] != "51820" {
+		t.Fatalf("属性不对：%+v", friend.Properties)
+	}
+
+	forced := decode[snapshotPayload](t, call(t, env, http.MethodGet, "/api/status?force=1", "").body)
+	if forced.Reused {
+		t.Fatal("强制探测不该算复用")
+	}
+}
+
+// 有 SSE 循环但还没有第一帧时，/api/status 回 204，让前端等推送。
+func TestStatusWithoutSnapshotReturns204(t *testing.T) {
+	env := testenv.NewWith(t, sourceWith(listenTCP(t)), testenv.Options{StreamInterval: time.Minute})
+	response := call(t, env, http.MethodGet, "/api/status", "")
+	if response.status != http.StatusNoContent || len(response.body) != 0 {
+		t.Fatalf("状态码 = %d，body = %q", response.status, response.body)
+	}
+}
+
+func TestReload(t *testing.T) {
+	address := listenTCP(t)
+	env := testenv.New(t, sourceWith(address))
+
+	extra := strings.Replace(sourceWith(address), "categories:",
+		"  - name: 小红\n    addresses: [\"127.0.0.1:1\"]\ncategories:", 1)
+	if err := os.WriteFile(env.SourceFile, []byte(extra), 0o600); err != nil {
+		t.Fatalf("写配置失败：%v", err)
+	}
+	response := call(t, env, http.MethodPost, "/api/reload", "")
+	if response.status != http.StatusOK {
+		t.Fatalf("状态码 = %d（%s）", response.status, response.body)
+	}
+	payload := decode[struct {
+		OK          bool   `json:"ok"`
+		Message     string `json:"message"`
+		Friends     int    `json:"friends"`
+		ReloadCount int    `json:"reloadCount"`
+		Snapshot    struct {
+			Title string `json:"title"`
+		} `json:"snapshot"`
+	}](t, response.body)
+	if !payload.OK || payload.Friends != 2 || payload.ReloadCount != 1 {
+		t.Fatalf("重载结果不对：%+v", payload)
+	}
+	if !strings.Contains(payload.Message, "已重新加载 2 个条目") {
+		t.Fatalf("重载提示 = %q", payload.Message)
+	}
+	if payload.Snapshot.Title != "测试看板" {
+		t.Fatalf("重载后没探一次：%+v", payload.Snapshot)
+	}
+
+	if err := os.WriteFile(env.SourceFile, []byte("friends: 1\n"), 0o600); err != nil {
+		t.Fatalf("写配置失败：%v", err)
+	}
+	broken := call(t, env, http.MethodPost, "/api/reload", "")
+	if broken.status != http.StatusInternalServerError {
+		t.Fatalf("写坏配置应该 500，拿到 %d", broken.status)
+	}
+	if !strings.Contains(string(broken.body), "friends 必须是数组") {
+		t.Fatalf("应该把 YAML 的错误原文回给页面：%s", broken.body)
+	}
+	if got := len(env.App.Monitor.Source().Friends); got != 2 {
+		t.Fatalf("写坏了要保留旧配置，现在有 %d 个条目", got)
+	}
+}
+
+type messageView struct {
+	ID          string  `json:"id"`
+	Kind        string  `json:"kind"`
+	Text        *string `json:"text"`
+	Locked      bool    `json:"locked"`
+	UpdatedAt   *int64  `json:"updatedAt"`
+	CreatedAt   int64   `json:"createdAt"`
+	Attachments []struct {
+		SHA256 string `json:"sha256"`
+		Name   string `json:"name"`
+		Size   int64  `json:"size"`
+		URL    string `json:"url"`
+	} `json:"attachments"`
+}
+
+// 落盘的时间戳只到毫秒，同一毫秒建的消息排序才看随机后缀，所以按 id 找。
+func findMessage(t *testing.T, payload messagesPayload, id string) messageView {
+	t.Helper()
+	for _, message := range payload.Messages {
+		if message.ID == id {
+			return message
+		}
+	}
+	t.Fatalf("列表里找不到 %s", id)
+	return messageView{}
+}
+
+type messagesPayload struct {
+	Messages []messageView `json:"messages"`
+	Summary  struct {
+		Total  int `json:"total"`
+		Locked int `json:"locked"`
+	} `json:"summary"`
+}
+
+func TestMessageLifecycle(t *testing.T) {
+	env := testenv.New(t, testenv.DefaultSource)
+
+	created := call(t, env, http.MethodPost, "/api/messages", `{"text":"你好 world"}`)
+	if created.status != http.StatusCreated {
+		t.Fatalf("新建状态码 = %d（%s）", created.status, created.body)
+	}
+	public := decode[messageView](t, created.body)
+	if public.Kind != "public" || public.Text == nil || *public.Text != "你好 world" || public.Locked {
+		t.Fatalf("新建的视图不对：%+v", public)
+	}
+	if public.CreatedAt == 0 || public.UpdatedAt != nil {
+		t.Fatalf("时间戳不对：%+v", public)
+	}
+
+	secret := call(t, env, http.MethodPost, "/api/messages", `{"kind":"key","text":"秘密","key":"s3cret"}`)
+	if secret.status != http.StatusCreated {
+		t.Fatalf("新建口令消息状态码 = %d（%s）", secret.status, secret.body)
+	}
+	key := decode[messageView](t, secret.body)
+
+	list := decode[messagesPayload](t, call(t, env, http.MethodGet, "/api/messages", "").body)
+	if list.Summary.Total != 2 || list.Summary.Locked != 1 {
+		t.Fatalf("列表概览不对：%+v", list.Summary)
+	}
+	locked := findMessage(t, list, key.ID)
+	if !locked.Locked || locked.Text != nil || len(locked.Attachments) != 0 {
+		t.Fatalf("锁定视图泄漏了内容：%+v", locked)
+	}
+
+	wrong := call(t, env, http.MethodPost, "/api/messages/"+key.ID+"/unlock", `{"key":"nope"}`)
+	if wrong.status != http.StatusForbidden || !strings.Contains(string(wrong.body), "密钥不对") {
+		t.Fatalf("口令错应该 403：%d %s", wrong.status, wrong.body)
+	}
+	unlocked := decode[messageView](t, call(t, env, http.MethodPost, "/api/messages/"+key.ID+"/unlock", `{"key":"s3cret"}`).body)
+	if unlocked.Locked || unlocked.Text == nil || *unlocked.Text != "秘密" {
+		t.Fatalf("解锁视图不对：%+v", unlocked)
+	}
+
+	patched := decode[messageView](t, call(t, env, http.MethodPatch, "/api/messages/"+public.ID, `{"text":"改过了"}`).body)
+	if patched.Text == nil || *patched.Text != "改过了" || patched.UpdatedAt == nil {
+		t.Fatalf("编辑结果不对：%+v", patched)
+	}
+
+	deleted := decode[struct {
+		OK           bool     `json:"ok"`
+		ID           string   `json:"id"`
+		RemovedFiles []string `json:"removedFiles"`
+	}](t, call(t, env, http.MethodPost, "/api/messages/"+public.ID+"/delete", `{}`).body)
+	if !deleted.OK || deleted.ID != public.ID || len(deleted.RemovedFiles) != 0 {
+		t.Fatalf("删除结果不对：%+v", deleted)
+	}
+	if gone := call(t, env, http.MethodGet, "/api/messages/"+public.ID, ""); gone.status != http.StatusNotFound {
+		t.Fatalf("删掉的消息应该 404，拿到 %d", gone.status)
+	}
+}
+
+func TestUploadAndDownload(t *testing.T) {
+	env := testenv.New(t, testenv.DefaultSource)
+	content := "hello attachment"
+
+	uploaded := call(t, env, http.MethodPut, "/api/messages/files?name=%E6%B5%8B%E8%AF%95.txt", content)
+	if uploaded.status != http.StatusCreated {
+		t.Fatalf("上传状态码 = %d（%s）", uploaded.status, uploaded.body)
+	}
+	attachment := decode[struct {
+		SHA256 string `json:"sha256"`
+		Name   string `json:"name"`
+		Size   int64  `json:"size"`
+	}](t, uploaded.body)
+	if attachment.Name != "测试.txt" || attachment.Size != int64(len(content)) || len(attachment.SHA256) != 64 {
+		t.Fatalf("上传结果不对：%+v", attachment)
+	}
+
+	created := decode[messageView](t, call(t, env, http.MethodPost, "/api/messages",
+		fmt.Sprintf(`{"attachments":[{"sha256":"%s","name":"测试.txt"}]}`, attachment.SHA256)).body)
+	if len(created.Attachments) != 1 || created.Attachments[0].URL == "" {
+		t.Fatalf("新建带附件的消息不对：%+v", created)
+	}
+
+	download := call(t, env, http.MethodGet, "/api/messages/files/"+attachment.SHA256+"?id="+created.ID, "")
+	if download.status != http.StatusOK || string(download.body) != content {
+		t.Fatalf("下载不对：%d %q", download.status, download.body)
+	}
+	if got := download.header.Get("Content-Disposition"); !strings.Contains(got, "filename*=UTF-8''%E6%B5%8B%E8%AF%95.txt") {
+		t.Fatalf("Content-Disposition = %q", got)
+	}
+
+	// 附件池是共享的：必须说明是哪个消息引用的它
+	if missing := call(t, env, http.MethodGet, "/api/messages/files/"+attachment.SHA256, ""); missing.status != http.StatusBadRequest {
+		t.Fatalf("不带 ?id= 应该 400，拿到 %d", missing.status)
+	}
+
+	deleted := decode[struct {
+		RemovedFiles []string `json:"removedFiles"`
+	}](t, call(t, env, http.MethodPost, "/api/messages/"+created.ID+"/delete", `{}`).body)
+	if len(deleted.RemovedFiles) != 1 || deleted.RemovedFiles[0] != attachment.SHA256 {
+		t.Fatalf("删消息要回收没人引用的附件：%+v", deleted)
+	}
+	if gone := call(t, env, http.MethodGet, "/api/messages/files/"+attachment.SHA256+"?id="+created.ID, ""); gone.status != http.StatusNotFound {
+		t.Fatalf("附件应该被回收了，拿到 %d", gone.status)
+	}
+}
+
+func TestUploadLimits(t *testing.T) {
+	env := testenv.NewWith(t, testenv.DefaultSource, testenv.Options{MaxUploadBytes: 8})
+	tooBig := call(t, env, http.MethodPut, "/api/messages/files?name=a.txt", strings.Repeat("x", 20))
+	if tooBig.status != http.StatusRequestEntityTooLarge {
+		t.Fatalf("超限状态码 = %d（%s）", tooBig.status, tooBig.body)
+	}
+}
+
+func TestErrorTextFollowsLanguage(t *testing.T) {
+	env := testenv.New(t, testenv.DefaultSource)
+	english := call(t, env, http.MethodGet, "/api/messages/not-an-id", "", [2]string{"Accept-Language", "en-US,en;q=0.9"})
+	if !strings.Contains(string(english.body), "bad message id") {
+		t.Fatalf("英文文案 = %q", english.body)
+	}
+	chinese := call(t, env, http.MethodGet, "/api/messages/not-an-id", "", [2]string{"Accept-Language", "zh-CN"})
+	if !strings.Contains(string(chinese.body), "消息 id 不合法") {
+		t.Fatalf("中文文案 = %q", chinese.body)
+	}
+	if english.status != http.StatusBadRequest || chinese.status != http.StatusBadRequest {
+		t.Fatalf("状态码不对：%d / %d", english.status, chinese.status)
+	}
+}
+
+func TestEventsStream(t *testing.T) {
+	env := testenv.New(t, testenv.DefaultSource)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, env.BaseURL+"/api/events", nil)
+	if err != nil {
+		t.Fatalf("造请求失败：%v", err)
+	}
+	response, err := env.Client.Do(request)
+	if err != nil {
+		t.Fatalf("连 SSE 失败：%v", err)
+	}
+	defer response.Body.Close()
+	if got := response.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/event-stream") {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	reader := bufio.NewReader(response.Body)
+	first := readEvent(t, reader)
+	if first.name != "messages" {
+		t.Fatalf("第一帧应该是消息列表，拿到 %q", first.name)
+	}
+	second := readEvent(t, reader)
+	if second.name != "snapshot" && second.name != "hello" {
+		t.Fatalf("第二帧应该是快照或 hello，拿到 %q", second.name)
+	}
+	if second.name == "snapshot" && !strings.Contains(second.data, `"summary"`) {
+		t.Fatalf("快照帧内容不对：%s", second.data)
+	}
+
+	// 消息有变更要主动推一帧
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		call(t, env, http.MethodPost, "/api/messages", `{"text":"推送测试"}`)
+	}()
+	third := readEvent(t, reader)
+	if third.name != "messages" || !strings.Contains(third.data, "推送测试") {
+		t.Fatalf("消息变更应该推一帧：%q %s", third.name, third.data)
+	}
+}
+
+type event struct {
+	name string
+	data string
+}
+
+func readEvent(t *testing.T, reader *bufio.Reader) event {
+	t.Helper()
+	var current event
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("读 SSE 失败：%v", err)
+		}
+		line = strings.TrimRight(line, "\r\n")
+		switch {
+		case strings.HasPrefix(line, "event: "):
+			current.name = strings.TrimPrefix(line, "event: ")
+		case strings.HasPrefix(line, "data: "):
+			current.data = strings.TrimPrefix(line, "data: ")
+		case line == "" && current.name != "":
+			return current
+		}
+	}
+}
+
+func TestHealthAndProbes(t *testing.T) {
+	env := testenv.New(t, testenv.DefaultSource)
+	health := decode[struct {
+		Status         string `json:"status"`
+		Friends        int    `json:"friends"`
+		Categories     []string
+		StreamInterval float64 `json:"streamInterval"`
+		Messages       struct {
+			Live int `json:"live"`
+		} `json:"messages"`
+		MessagesDir    string `json:"messagesDir"`
+		MaxUploadBytes int64  `json:"maxUploadBytes"`
+	}](t, call(t, env, http.MethodGet, "/api/health", "").body)
+	if health.Status != "ok" || health.Friends != 1 || health.MaxUploadBytes != 1024*1024 {
+		t.Fatalf("健康信息不对：%+v", health)
+	}
+	if !strings.HasSuffix(health.MessagesDir, filepath.Join("data", "messages")) {
+		t.Fatalf("消息目录 = %q", health.MessagesDir)
+	}
+	if health.Categories[0] != "friend" {
+		t.Fatalf("分类 = %v", health.Categories)
+	}
+	if response := call(t, env, http.MethodGet, "/livez", ""); response.status != http.StatusOK {
+		t.Fatalf("/livez = %d", response.status)
+	}
+	if response := call(t, env, http.MethodGet, "/readyz", ""); response.status != http.StatusOK {
+		t.Fatalf("/readyz = %d（%s）", response.status, response.body)
+	}
+
+	guarded := testenv.NewWith(t, testenv.DefaultSource, testenv.Options{ReadyzToken: "tok"})
+	if response := call(t, guarded, http.MethodGet, "/readyz", ""); response.status != http.StatusForbidden {
+		t.Fatalf("没带 token 应该 403，拿到 %d", response.status)
+	}
+	if response := call(t, guarded, http.MethodGet, "/readyz?token=wrong", ""); response.status != http.StatusForbidden {
+		t.Fatalf("token 不对应该 403，拿到 %d", response.status)
+	}
+	if response := call(t, guarded, http.MethodGet, "/readyz?token=tok", ""); response.status != http.StatusOK {
+		t.Fatalf("token 对了应该 200，拿到 %d", response.status)
+	}
+}
+
+func TestStaticFiles(t *testing.T) {
+	env := testenv.New(t, testenv.DefaultSource)
+	index := call(t, env, http.MethodGet, "/", "")
+	if index.status != http.StatusOK || !strings.Contains(string(index.body), "<title>test</title>") {
+		t.Fatalf("首页不对：%d %q", index.status, index.body)
+	}
+	asset := call(t, env, http.MethodGet, "/assets/app.js", "")
+	if asset.status != http.StatusOK || asset.header.Get("Cache-Control") != "no-store" {
+		t.Fatalf("静态资源不对：%d %v", asset.status, asset.header)
+	}
+	if missing := call(t, env, http.MethodGet, "/nope.html", ""); missing.status != http.StatusNotFound {
+		t.Fatalf("不存在的文件应该 404，拿到 %d", missing.status)
+	}
+	method := call(t, env, http.MethodPost, "/", "")
+	if method.status != http.StatusMethodNotAllowed || method.header.Get("Allow") != "GET, HEAD" {
+		t.Fatalf("静态路径只允许 GET/HEAD：%d %v", method.status, method.header)
+	}
+	unknown := call(t, env, http.MethodGet, "/api/nope", "")
+	if unknown.status != http.StatusNotFound || !strings.Contains(string(unknown.body), "not found") {
+		t.Fatalf("未知 API 应该回 JSON 404：%d %s", unknown.status, unknown.body)
+	}
+}

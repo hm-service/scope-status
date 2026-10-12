@@ -1,0 +1,43 @@
+# 复制成 source.yaml 再改：cp source.example.yaml source.yaml
+#
+# source.yaml 里通常有密码之类的敏感值，所以它被 .gitignore 排除了，别提交、别贴给别人。
+title: Scope Status
+
+probe:
+  method: icmp             # icmp（走系统 ping）| tcp | http
+  timeout: 2               # 秒
+  port: 80                 # 地址没写端口时用这个
+  concurrency: 16          # 并发探测数
+  count: 1                 # icmp 的 -c
+
+categories:
+  - id: friend
+    label: 朋友
+    order: 1
+  - id: server
+    label: 服务器
+    order: 2
+
+friends:
+  - name: 小明
+    note: 家里那台
+    category: friend
+    addresses: ["10.0.0.2", "10.0.1.2"]
+    properties:
+      备注: 改成自己的值
+
+services:
+  - name: CS 起源
+    host: 10.0.0.9
+    port: 27015
+    protocol: a2s
+    category: server
+    connect_cmd: connect 10.0.0.9:27015
+    properties:
+      版本: 1.6
+
+links:
+  - name: 面板
+    url: https://panel.example.com/
+    probe_url: https://panel.example.com/healthz
+    expect_status: 200
