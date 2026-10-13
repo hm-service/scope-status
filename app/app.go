@@ -18,6 +18,7 @@ type Config struct {
 	DataDir        string
 	StreamInterval time.Duration
 	MaxUploadBytes int64
+	AuthFloor      time.Duration
 }
 
 type App struct {
@@ -40,7 +41,7 @@ func New(cfg Config) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	messages := store.NewMessageStore(filepath.Join(cfg.DataDir, "messages"), cfg.MaxUploadBytes)
+	messages := store.NewMessageStore(filepath.Join(cfg.DataDir, "messages"), cfg.MaxUploadBytes, cfg.AuthFloor)
 	if err := messages.Ensure(); err != nil {
 		return nil, err
 	}

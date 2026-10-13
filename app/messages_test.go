@@ -12,7 +12,7 @@ import (
 
 func newMessageService(t *testing.T) (*MessageService, *Monitor) {
 	t.Helper()
-	messages := store.NewMessageStore(filepath.Join(t.TempDir(), "messages"), 1024)
+	messages := store.NewMessageStore(filepath.Join(t.TempDir(), "messages"), 1024, time.Millisecond)
 	if err := messages.Ensure(); err != nil {
 		t.Fatalf("建目录失败：%v", err)
 	}

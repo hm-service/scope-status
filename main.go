@@ -27,6 +27,8 @@ const (
 	// 优雅退出的宽限期；超过就强关，并以此退出码表明是被强制的
 	shutdownGrace      = 5 * time.Second
 	exitShutdownForced = 254
+	// 口令校验的时间下限：认证步骤不能秒回
+	authMinDuration = time.Second
 )
 
 // /readyz 的口令：够长的随机串，只允许小写字母、数字与下划线
@@ -72,6 +74,7 @@ func run() int {
 		DataDir:        cfg.DataDir,
 		StreamInterval: cfg.StreamInterval,
 		MaxUploadBytes: cfg.MaxUploadBytes,
+		AuthFloor:      authMinDuration,
 	})
 	if err != nil {
 		startupFailed(err)

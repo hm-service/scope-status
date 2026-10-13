@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "typecheck": "vue-tsc -b"
   },
-  "packageManager": "pnpm@12.4.1",
+  "packageManager": "pnpm@12.13.0",
   "dependencies": {
     "vue": "^3.5.42"
   },

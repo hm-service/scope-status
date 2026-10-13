@@ -26,6 +26,7 @@ type MessageStore struct {
 	root      string
 	files     string
 	maxUpload int64
+	authFloor time.Duration
 }
 
 type AttachmentRef struct {
@@ -43,7 +44,7 @@ type MessageStats struct {
 type messageFile struct {
 	Kind        string           `json:"kind"`
 	Text        string           `json:"text"`
-	Key         string           `json:"key,omitempty"`
+	KeyHash     string           `json:"keyHash,omitempty"`
 	UpdatedAt   *int64           `json:"updatedAt,omitempty"`
 	Attachments []attachmentFile `json:"attachments"`
 	IsDeleted   bool             `json:"isDeleted"`
@@ -55,8 +56,9 @@ type attachmentFile struct {
 	Size   int64  `json:"size"`
 }
 
-func NewMessageStore(root string, maxUpload int64) *MessageStore {
-	return &MessageStore{root: root, files: filepath.Join(root, "files"), maxUpload: maxUpload}
+// authFloor 是口令校验的时间下限：认证步骤不能秒回。
+func NewMessageStore(root string, maxUpload int64, authFloor time.Duration) *MessageStore {
+	return &MessageStore{root: root, files: filepath.Join(root, "files"), maxUpload: maxUpload, authFloor: authFloor}
 }
 
 func (s *MessageStore) Root() string          { return s.root }
@@ -222,7 +224,7 @@ func (s *MessageStore) Get(id, key string) (*core.Message, error) {
 	if deleted {
 		return nil, core.NotFound(i18n.KeyMessageDeleted, id)
 	}
-	if err := core.Authorize(message, key); err != nil {
+	if err := core.Authorize(message, key, s.authFloor); err != nil {
 		return nil, err
 	}
 	return message, nil
@@ -292,7 +294,11 @@ func (s *MessageStore) Create(kind core.Kind, text, key string, refs []Attachmen
 		if strings.TrimSpace(key) == "" {
 			return nil, core.BadRequest(i18n.KeyMessageKeyRequired)
 		}
-		secret = key
+		hashed, err := core.HashKey(key)
+		if err != nil {
+			return nil, err
+		}
+		secret = hashed
 	}
 	attachments, err := s.resolveAttachments(refs)
 	if err != nil {
@@ -308,11 +314,12 @@ func (s *MessageStore) Create(kind core.Kind, text, key string, refs []Attachmen
 	if err != nil {
 		return nil, err
 	}
-	data := messageFile{Kind: string(kind), Text: text, Key: secret, Attachments: attachments, IsDeleted: false}
+	data := messageFile{Kind: string(kind), Text: text, KeyHash: secret, Attachments: attachments, IsDeleted: false}
 	if err := s.write(id, &data); err != nil {
 		return nil, err
 	}
-	return s.Get(id, secret)
+	// 回给创建者时用明文口令验：盘上只有 hash
+	return s.Get(id, key)
 }
 
 // Update 改正文 / 附件（类型不可改）。口令消息要带对 key。
@@ -321,7 +328,7 @@ func (s *MessageStore) Update(id string, text *string, refs []AttachmentRef, rep
 	if err != nil {
 		return nil, err
 	}
-	if err := core.Authorize(message, key); err != nil {
+	if err := core.Authorize(message, key, s.authFloor); err != nil {
 		return nil, err
 	}
 	if text != nil {
@@ -350,7 +357,7 @@ func (s *MessageStore) Delete(id, key string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := core.Authorize(message, key); err != nil {
+	if err := core.Authorize(message, key, s.authFloor); err != nil {
 		return nil, err
 	}
 	data.IsDeleted = true
@@ -528,7 +535,7 @@ func (s *MessageStore) read(id string) (*core.Message, bool, error) {
 		ID:          id,
 		Kind:        kind,
 		Text:        data.Text,
-		Key:         data.Key,
+		KeyHash:     data.KeyHash,
 		UpdatedAt:   data.UpdatedAt,
 		IsDeleted:   data.IsDeleted,
 		Attachments: attachments,
@@ -570,9 +577,9 @@ func (s *MessageStore) decode(id string) (*messageFile, error) {
 	if err := decodeField(raw, "isDeleted", &deleted); err != nil {
 		return nil, core.ServerError(i18n.KeyMessageFileFields, name)
 	}
-	var secret string
+	var keyHash string
 	if kind == string(core.KindKey) {
-		if err := decodeField(raw, "key", &secret); err != nil {
+		if err := decodeField(raw, "keyHash", &keyHash); err != nil || !core.ValidKeyHash(keyHash) {
 			return nil, core.ServerError(i18n.KeyMessageFileKey, name)
 		}
 	}
@@ -607,7 +614,7 @@ func (s *MessageStore) decode(id string) (*messageFile, error) {
 	return &messageFile{
 		Kind:        kind,
 		Text:        text,
-		Key:         secret,
+		KeyHash:     keyHash,
 		UpdatedAt:   updatedAt,
 		Attachments: attachments,
 		IsDeleted:   deleted,

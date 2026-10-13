@@ -262,3 +262,52 @@ func TestMonitorIgnoresNegativeStreamInterval(t *testing.T) {
 		t.Fatalf("间隔 = %v", monitor.StreamInterval())
 	}
 }
+
+// 回归：空闲时循环会睡一分钟，订阅者连上必须立刻把它叫醒——
+// 否则首帧探得快的时候（比如图标改成异步之后），新打开的页面要僵一分钟。
+func TestStreamWakesUpForNewSubscriber(t *testing.T) {
+	monitor := NewMonitor(tcpSource(t, listenTCP(t)), "", 50*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		monitor.Stream(ctx)
+		close(done)
+	}()
+	deadline := time.Now().Add(3 * time.Second)
+	for monitor.Current() == nil && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	first := monitor.Current()
+	if first == nil {
+		t.Fatal("第一帧没出来")
+	}
+	// 没有订阅者：循环进入每分钟一次的空闲节奏
+	time.Sleep(300 * time.Millisecond)
+	if monitor.Current() != first {
+		t.Fatal("空闲时不该再探")
+	}
+	sub := monitor.Subscribe(i18n.Zh)
+	defer monitor.Unsubscribe(sub)
+	if !waitForSnapshot(t, monitor, first, 2*time.Second) {
+		t.Fatal("订阅者连上后没有被叫醒，快照还是旧的")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("取消后循环没退出")
+	}
+}
+
+func waitForSnapshot(t *testing.T, monitor *Monitor, previous *core.Snapshot, timeout time.Duration) bool {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if current := monitor.Current(); current != nil && current != previous {
+			return true
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return false
+}

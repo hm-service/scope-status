@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -208,21 +209,64 @@ func TestProbeAddressUnknownMethod(t *testing.T) {
 	}
 }
 
-func TestFaviconCacheCachesNegativeResult(t *testing.T) {
+func TestFaviconFetchCachesNegativeResult(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 	}))
 	defer server.Close()
 	cache := NewFaviconCache()
-	if found := cache.For(server.URL); found != nil {
+	if found := cache.fetch(server.URL); found != nil {
 		t.Fatalf("没有图标时应该返回 nil，拿到 %q", *found)
 	}
-	if _, cached := cache.entries[server.URL]; !cached {
-		t.Fatal("失败结果也要缓存，不然每轮探测都去打人家站点")
+	// 失败结果也要进缓存，不然每轮探测都去打人家站点
+	cache.entries[server.URL] = nil
+	if found := cache.For(server.URL); found != nil {
+		t.Fatalf("缓存了 nil 之后也该返回 nil，拿到 %q", *found)
+	}
+	if inflight := len(cache.inflight); inflight != 0 {
+		t.Fatalf("命中缓存不该再发起抓取，in-flight = %d", inflight)
 	}
 }
 
-func TestFaviconCacheReadsLinkTag(t *testing.T) {
+// For 不能阻塞：后台抓完之前先给 nil，抓完自然进缓存。
+func TestFaviconForIsAsync(t *testing.T) {
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			<-release
+			w.Write([]byte(`<link rel="icon" href="/icon.svg">`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+	var releaseOnce sync.Once
+	releaseNow := func() { releaseOnce.Do(func() { close(release) }) }
+	defer releaseNow()
+
+	cache := NewFaviconCache()
+	started := time.Now()
+	if found := cache.For(server.URL); found != nil {
+		t.Fatalf("第一次调用应该先给 nil，拿到 %q", *found)
+	}
+	if elapsed := time.Since(started); elapsed > 200*time.Millisecond {
+		t.Fatalf("For 不该等抓取完成，花了 %v", elapsed)
+	}
+	releaseNow()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if found := cache.For(server.URL); found != nil {
+			if *found != server.URL+"/icon.svg" {
+				t.Fatalf("图标地址 = %q", *found)
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("抓完的图标没有进缓存")
+}
+
+func TestFaviconFetchReadsLinkTag(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			w.Write([]byte(`<html><head><link rel="icon" href="/static/icon.svg"></head></html>`))
@@ -231,7 +275,7 @@ func TestFaviconCacheReadsLinkTag(t *testing.T) {
 		http.NotFound(w, r)
 	}))
 	defer server.Close()
-	found := NewFaviconCache().For(server.URL)
+	found := NewFaviconCache().fetch(server.URL)
 	if found == nil || *found != server.URL+"/static/icon.svg" {
 		t.Fatalf("图标地址 = %v", found)
 	}

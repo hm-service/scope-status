@@ -10,7 +10,7 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 | `TZ`                     | `Asia/Shanghai`        | 时区；影响日志时间戳与消息文件名                         |
 | `HOST`                   | `127.0.0.1`            | 监听地址                                                 |
 | `PORT`                   | `8080`                 | 监听端口                                                 |
-| `READYZ_TOKEN`           | 空                     | 非空时 `/readyz` 必须带 `?token=`；空则不校验            |
+| `READYZ_TOKEN`           | 空                         | 非空时 `/readyz` 必须带 `?token=`；16–128 位小写字母/数字/下划线，写错拒绝启动 |
 | `TRUSTED_PROXIES`        | `127.0.0.1/32,::1/128` | 可信反代来源，决定真实客户端 IP 怎么取                   |
 | `STREAM_INTERVAL`        | `5`                    | SSE 循环探测间隔秒数；`0` 表示不起循环（只按需探测）     |
 | `MAX_API_CONCURRENCY`    | `128`                  | API 路由（含 `/livez` `/readyz`）并发上限                |
@@ -22,6 +22,8 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
   状态挂 PVC；挂一个卷就是应用的全部。
 - 启动即失败：配置文件不存在 / 解析不通过 / 数据目录建不出来，进程直接报错退出，不做任何降级。
 - 配置路径没有第二个来源，也没有环境变量能改它；改 `DATA_DIR` 就等于改配置路径，界面上与 `/api/health` 里显示的永远是当前生效的那一份。
+- Kube 部署时 `<DATA_DIR>/source.yaml` 由人手动放进卷（`podman cp` 或宿主目录型 PV），清单里不挂它。
+- 工具链版本在 `go.mod`、`Dockerfile`、CI、`frontend/package.json` 四处对齐（当前 go 1.27.2 / node 26.7.0 / pnpm 12.13.0）。
 
 ## 2. 页面
 
@@ -42,7 +44,11 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 
 ## 3. 接口
 
-除附件下载外一律 `application/json`；错误是纯文本（按 `Accept-Language` 渲染好的文案），状态码见表。
+除附件下载外一律 `application/json`；错误体统一是 `{"detail": "…"}`（按 `Accept-Language` 渲染好的文案），
+`/api/*` 下的 404 / 405 也是这个形状，405 带 `Allow`（`GET` 按 Go 的语义写成 `GET, HEAD`）。
+
+响应头默认带 `Content-Language` + `Vary: Accept-Language`，以及 `X-Content-Type-Options: nosniff`、
+`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`。
 
 | 方法         | 路径                                    | 说明                                                         |
 | ------------ | --------------------------------------- | ------------------------------------------------------------ |
@@ -65,7 +71,7 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 
 `POST /api/reload` 成功时回 `{ok, message, friends, services, links, reloadCount, sourcePath, snapshot}`：
 `message` 是服务端按 `Accept-Language` 渲染好的一句提示，`snapshot` 就是下面那份快照（`reused: false`）。
-失败时回 `500` 纯文本，内容是配置校验的报错原文，旧配置继续生效。
+失败时回 `500`，`detail` 就是配置校验的报错原文，旧配置继续生效。
 
 服务端渲染的文案（探测 `detail`、错误正文）按**请求**（SSE 则是**连接建立时**）的 `Accept-Language` 决定；
 前端的界面文案走自己的表，切语言不必重连，但服务端渲染的那部分要等下一次请求 / 重连才换语言。
@@ -121,8 +127,10 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 
 - `friends` 是扁平的全量列表，`groups` 是按 `category` 分好组的同一批对象；`services` /
   `servicesGroups` 同理。
+- 网站图标（`faviconUrl`）**异步**抓：`For` 只读缓存，未命中就丢给后台（同 origin 只抓一次），
+  所以某一帧里它可能是 `null`，下一帧补上——抓图标最慢要十几秒，不能挂在探测的关键路径上。
 - `status` 只有 `up` / `down`；判不出结论（没有 `ping`、域名解析不了）时整个探测报错，
-  不编状态：`/api/status?force=1` 会回 `500` 纯文本，SSE 循环则记 traceback 后终止。
+  不编状态：`/api/status?force=1` 会回 `500`（`detail` 是原因），SSE 循环则记一条带文案键的日志后终止。
 
 ### 3.2. SSE
 
@@ -185,8 +193,9 @@ data: {…快照，多一个 "reused": false…}
   }
   ```
 
-  口令消息多一个 `key`。读到不合规的文件（缺字段、类型不对、id 对不上文件名）就是 `500`，
-  不修复、不跳过。
+  口令消息多一个 `keyHash`：Argon2id 的 PHC 串（`$argon2id$v=19$m=19456,t=2,p=1$<salt>$<hash>`，
+  盐与摘要用无填充 base64）。读到不合规的文件（缺字段、类型不对、id 对不上文件名、`keyHash` 不是一个
+  能解析的 PHC 串）就是 `500`，不修复、不跳过。
 
 - `messages/files/<sha256>` —— 附件池，按内容寻址，同内容天然一份。上传时边写边算 sha256，
   写完按内容改名；池子里已有就丢掉刚写的临时文件。
@@ -196,12 +205,17 @@ data: {…快照，多一个 "reused": false…}
 
 ## 5. 安全模型
 
-- 口令消息的正文在盘上是**明文**，门禁完全在服务端：没验过 `key` 的响应里除了 `id` 和
-  `createdAt` 什么都不给，附件也不暴露；下载附件同样要带 `key`。
+- 口令消息的正文与附件在盘上是**明文**，门禁完全在服务端：没验过口令的响应里除了 `id` 和
+  `createdAt` 什么都不给，附件也不暴露；下载附件同样要带口令。
+- 口令本身**只存 Argon2id 哈希**（`m=19456, t=2, p=1`，PHC 串），盘上不出现明文；校验用恒定时间比较，
+  并且认证步骤至少花 1 秒（成功与失败都一样），一次最多 4 个哈希在算。
+  哈希参数写死在 `core/`，读盘时会检查参数范围，挡住"把参数改大"的坏文件。
 - 登录态不存在：口令只存活在浏览器内存里，刷新即失效。
 - 应用不做 TLS / 限流，交给反代；应用只做输入上限与校验（体积、字段长度、类型）。
-- 附件名只取最后一段并去掉控制字符，不当路径用；口令用恒定时间比较。
-- 数据目录 `0700`、消息文件 `0600`，启动时收紧，`/readyz` 持续断言。
+- 附件名只取最后一段并去掉控制字符，不当路径用。
+- 数据目录 `0700`、消息文件与附件 `0600`，启动时收紧，`/readyz` 持续断言。
+- `/livez` 永远 `200` 且不记日志；`/readyz` 口令不对回 `401`（带 `WWW-Authenticate: Bearer`）、
+  依赖没就绪回 `503`，失败细节只进后端日志。
 
 ## 6. i18n
 

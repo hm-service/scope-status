@@ -8,9 +8,7 @@ DIST := ".dist"
 DIST_OS := env("DIST_OS", "linux")
 ARCHS := env("ARCHS", "amd64 arm64")
 
-HOST := env("HOST", "127.0.0.1")
 PORT := env("PORT", "8080")
-# 默认 .data；外面给 DATA_DIR 时优先（SKILL.md §11 的 `DATA_DIR=./.data_temp just run`）
 DATA_DIR := env("DATA_DIR", justfile_directory() / ".data")
 
 # 列出全部命令

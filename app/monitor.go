@@ -100,6 +100,7 @@ type Monitor struct {
 
 	subMu sync.Mutex
 	subs  map[*subscriber]struct{}
+	wake  chan struct{}
 
 	flightMu sync.Mutex
 	flight   *flight
@@ -112,6 +113,7 @@ func NewMonitor(source *core.Source, sourcePath string, streamInterval time.Dura
 		streamInterval: max(0, streamInterval),
 		favicons:       core.NewFaviconCache(),
 		subs:           make(map[*subscriber]struct{}),
+		wake:           make(chan struct{}, 1),
 	}
 }
 
@@ -241,6 +243,10 @@ func (m *Monitor) Stream(ctx context.Context) {
 			case <-ctx.Done():
 				timer.Stop()
 				return
+			case <-m.wake:
+				// 重新算一遍间隔：现在有人看了，不必再等那一分钟
+				timer.Stop()
+				continue
 			case <-timer.C:
 			}
 		}
@@ -278,6 +284,11 @@ func (m *Monitor) Subscribe(lang i18n.Lang) *subscriber {
 	m.subMu.Lock()
 	m.subs[sub] = struct{}{}
 	m.subMu.Unlock()
+	// 空闲时循环在睡一分钟，来了订阅者得立刻重估节奏
+	select {
+	case m.wake <- struct{}{}:
+	default:
+	}
 	return sub
 }
 

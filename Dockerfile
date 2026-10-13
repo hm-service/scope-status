@@ -1,11 +1,10 @@
 # ==========================================
 # 第一阶段：构建前端
 # ==========================================
-FROM --platform=$BUILDPLATFORM node:26-alpine AS frontend
+FROM --platform=$BUILDPLATFORM node:26.7.0-alpine AS frontend
 
-# 与 frontend/package.json 的 packageManager 保持一致
-ARG PNPM_VERSION=12.4.1
-RUN npm install -g pnpm@${PNPM_VERSION}
+# 版本在模板生成时注入
+RUN npm install -g pnpm@12.13.0
 
 WORKDIR /build/frontend
 
@@ -18,7 +17,7 @@ RUN pnpm build
 # ==========================================
 # 第二阶段：构建 Go 二进制
 # ==========================================
-FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.2-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH

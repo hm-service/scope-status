@@ -14,7 +14,8 @@ import (
 
 func newStore(t *testing.T, maxUpload int64) *MessageStore {
 	t.Helper()
-	store := NewMessageStore(filepath.Join(t.TempDir(), "messages"), maxUpload)
+	// 测试里把认证时间下限压到 1ms，别真等 1 秒
+	store := NewMessageStore(filepath.Join(t.TempDir(), "messages"), maxUpload, time.Millisecond)
 	if err := store.Ensure(); err != nil {
 		t.Fatalf("建目录失败：%v", err)
 	}
@@ -242,7 +243,8 @@ func TestBrokenMessageFiles(t *testing.T) {
 		{"顶层不是对象", "[]", i18n.KeyMessageFileNotObject},
 		{"kind 不认识", `{"kind":"weird","text":"x","isDeleted":false,"attachments":[]}`, i18n.KeyMessageFileKind},
 		{"缺 text", `{"kind":"public","isDeleted":false,"attachments":[]}`, i18n.KeyMessageFileFields},
-		{"口令消息没 key", `{"kind":"key","text":"x","isDeleted":false,"attachments":[]}`, i18n.KeyMessageFileKey},
+		{"口令消息没 keyHash", `{"kind":"key","text":"x","isDeleted":false,"attachments":[]}`, i18n.KeyMessageFileKey},
+		{"keyHash 不是 PHC", `{"kind":"key","text":"x","keyHash":"s3cret","isDeleted":false,"attachments":[]}`, i18n.KeyMessageFileKey},
 		{"attachments 不是数组", `{"kind":"public","text":"x","isDeleted":false,"attachments":null}`, i18n.KeyMessageFileAtts},
 		{"附件条目不对", `{"kind":"public","text":"x","isDeleted":false,"attachments":[{"sha256":"x"}]}`, i18n.KeyMessageFileAttEntry},
 		{"updatedAt 不是整数", `{"kind":"public","text":"x","isDeleted":false,"updatedAt":"now","attachments":[]}`, i18n.KeyMessageFileUpdatedAt},

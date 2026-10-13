@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hm-service/scope-status/i18n"
@@ -299,27 +300,59 @@ func isTimeout(err error) bool {
 	return isDeadline(err)
 }
 
-// 站点图标：每个 origin 只查一次，查不到也记下来，别每轮探测都去打人家站点。
+// 站点图标抓起来是慢活（不可达的站点每个要 4s×3），不能挂在探测的关键路径上：
+// For 只读缓存，未命中就起一个后台抓取（同 origin 只抓一次），这次先给 nil。
 type FaviconCache struct {
-	entries map[string]*string
+	mu       sync.Mutex
+	entries  map[string]*string
+	inflight map[string]bool
+	slots    chan struct{}
 }
 
 func NewFaviconCache() *FaviconCache {
-	return &FaviconCache{entries: make(map[string]*string)}
+	return &FaviconCache{
+		entries:  make(map[string]*string),
+		inflight: make(map[string]bool),
+		slots:    make(chan struct{}, 4),
+	}
 }
 
 func (c *FaviconCache) For(rawURL string) *string {
-	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+	origin, ok := originOf(rawURL)
+	if !ok {
 		return nil
 	}
-	origin := parsed.Scheme + "://" + parsed.Host
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if cached, ok := c.entries[origin]; ok {
 		return cached
 	}
-	found := discoverFavicon(origin)
-	c.entries[origin] = found
-	return found
+	if !c.inflight[origin] {
+		c.inflight[origin] = true
+		go func() {
+			found := c.fetch(origin)
+			c.mu.Lock()
+			c.entries[origin] = found
+			delete(c.inflight, origin)
+			c.mu.Unlock()
+		}()
+	}
+	return nil
+}
+
+// fetch 同步抓一次；测试直接调它，免得跟后台 goroutine 抢时序。
+func (c *FaviconCache) fetch(origin string) *string {
+	c.slots <- struct{}{}
+	defer func() { <-c.slots }()
+	return discoverFavicon(origin)
+}
+
+func originOf(rawURL string) (string, bool) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", false
+	}
+	return parsed.Scheme + "://" + parsed.Host, true
 }
 
 var (

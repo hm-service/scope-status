@@ -78,6 +78,7 @@ func NewWith(t *testing.T, source string, opts Options) *Env {
 	}
 	application, err := app.New(app.Config{
 		DataDir:        dataDir,
+		AuthFloor:      time.Millisecond,
 		StreamInterval: opts.StreamInterval,
 		MaxUploadBytes: maxUpload,
 	})

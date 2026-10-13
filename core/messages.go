@@ -2,7 +2,6 @@ package core
 
 import (
 	"crypto/rand"
-	"crypto/subtle"
 	"fmt"
 	"regexp"
 	"strings"
@@ -88,11 +87,12 @@ type Attachment struct {
 	Size   int64
 }
 
+// Message 是一条消息的领域形状：口令消息只有 hash，盘上不出现明文口令。
 type Message struct {
 	ID          string
 	Kind        Kind
 	Text        string
-	Key         string
+	KeyHash     string
 	UpdatedAt   *int64
 	IsDeleted   bool
 	Attachments []Attachment
@@ -184,18 +184,22 @@ func CleanFileName(name string) (string, error) {
 	return cleaned, nil
 }
 
-// Authorize 校验口令消息的 key，用恒定时间比较。
-func Authorize(message *Message, key string) error {
+// Authorize 校验口令消息的 key：比的是 Argon2id hash，成功与否都至少花掉 floor。
+func Authorize(message *Message, key string, floor time.Duration) error {
 	if message.Kind != KindKey {
 		return nil
 	}
-	if message.Key == "" {
+	if !ValidKeyHash(message.KeyHash) {
 		return ServerError(i18n.KeyMessageFileKey, message.ID)
 	}
 	if key == "" {
 		return BadRequest(i18n.KeyMessageKeyRequired)
 	}
-	if subtle.ConstantTimeCompare([]byte(key), []byte(message.Key)) != 1 {
+	matched, err := VerifyKey(key, message.KeyHash, floor)
+	if err != nil {
+		return ServerError(i18n.KeyMessageFileKey, message.ID)
+	}
+	if !matched {
 		return Forbidden(i18n.KeyMessageKeyWrong)
 	}
 	return nil

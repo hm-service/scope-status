@@ -20,16 +20,11 @@
 # 概念验证与临时脚本（just 的 JUST_TEMPDIR 也落在这里）
 /.scratch/
 
-# 换实现语言时归档的旧版本，只作参考、不再维护
-/.prototype/
-
-# ---- 本机环境：$HOME 只读时把缓存重定向到仓库里（justfile 调用时用）----
-/.gopath/
-/.npm-cache/
-/.pnpm-store/
-
 # 人写的配置固定放在 DATA_DIR 根；仓库根这份只是保险，别提交
 /source.yaml
+
+# 换实现语言时归档的旧版本，只作参考、不再维护
+/.prototype/
 
 # agent / 编辑器 / 语言运行时自带的目录
 /.agents/
