@@ -1,54 +1,13 @@
-# 约定：本地 / 临时目录一律以 . 开头（.github/ 是唯一例外，它是真正的源码）
+# 约定：本地 / 临时目录一律以 . 开头，一律不进构建上下文；frontend/ 的源码要进 ——
+#       前端阶段得靠它构建，构建产物（frontend/dist）则由该阶段自己生成。
 #
-# 注意：这里排掉的路径若被 go:embed 引用（例如 docs/），镜像里就会缺文件、编译失败，
+# 这里排掉的路径若被 go:embed 引用（例如 docs/），镜像里就会缺文件、编译失败，
 #       到时候把对应行删掉。
-
-# 版本控制与仓库元数据
-/.git/
-/.github/
-/.gitignore
-/.dockerignore
-
-# 构建产物（just build 的输出都在 .dist/；不进构建上下文）
-/.dist/
-
-# Go 缓存（默认在 $HOME；万一临时重定向到仓库里，也别打进镜像）
-/.go-build/
-/.go-mod-cache/
-
-# 运行时数据（数据库含 -wal / -shm、密钥等），首次启动自动重建
-/.data/
-/.data_sample/
-
-# 前端：依赖与构建产物都在镜像里自己生成，宿主机的这两份不进上下文
-# （frontend/ 的源码要进 —— 前端阶段得靠它构建）
+.*
 /frontend/node_modules/
 /frontend/dist/
 
-# 参考项目（本地 clone）
-/.ref/
-
-# 验证截图与本机临时脚本
-/.shots/
-
-# 概念验证与临时脚本（just 的 JUST_TEMPDIR 也落在这里）
-/.scratch/
-
-# 人写的配置固定放在 DATA_DIR 根；仓库根这份只是保险，别提交
-/source.yaml
-
-# 换实现语言时归档的旧版本
-/.prototype/
-
-# agent / 编辑器 / 语言运行时自带的目录
-/.agents/
-/.claude/
-/.codex/
-/.venv/
-
 # 环境变量与日志
-/.env
-/.env.*
 *.log
 
 # 构建镜像用不到的文档与部署描述

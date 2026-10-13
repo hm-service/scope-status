@@ -1,33 +1,10 @@
-# 约定：本地 / 临时目录一律以 . 开头（.github/ 是唯一例外，它是真正的源码）
+# 约定：本地 / 临时目录一律以 . 开头，除 .github/ 与 .vscode/（它们是真正的源码）外都不入库
+.*
+!.github/
+!.vscode/
+!.gitignore
+!.dockerignore
 
-# 构建产物（make build / make dist 的输出都在 .dist/）
-/.dist/
-
-# Go 缓存（默认在 $HOME；万一临时重定向到仓库里，也别提交）
-/.go-build/
-/.go-mod-cache/
-
-# 运行时数据（数据库含 -wal / -shm、密钥等），首次启动自动重建
-/.data/
-/.data_sample/
-
-# 参考项目（本地 clone，只查阅、不修改）
-/.ref/
-
-# 验证截图与本机临时脚本；要进 README 的图挪到 docs/
-/.shots/
-
-# 概念验证与临时脚本（just 的 JUST_TEMPDIR 也落在这里）
-/.scratch/
-
-# 人写的配置固定放在 DATA_DIR 根；仓库根这份只是保险，别提交
-/source.yaml
-
-# 换实现语言时归档的旧版本，只作参考、不再维护
-/.prototype/
-
-# agent / 编辑器 / 语言运行时自带的目录
-/.agents/
-/.claude/
-/.codex/
-/.venv/
+# 前端依赖与构建产物（产物由 just frontend 生成，最后被 go:embed 嵌进二进制）
+/frontend/node_modules/
+/frontend/dist/
