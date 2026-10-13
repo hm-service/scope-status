@@ -415,6 +415,78 @@ func TestEventsStream(t *testing.T) {
 	}
 }
 
+type errorBody struct {
+	Detail string `json:"detail"`
+}
+
+func TestErrorBodyAndHeaders(t *testing.T) {
+	env := testenv.New(t, testenv.DefaultSource)
+
+	bad := call(t, env, http.MethodGet, "/api/messages/not-an-id", "")
+	if bad.status != http.StatusBadRequest {
+		t.Fatalf("状态码 = %d", bad.status)
+	}
+	if got := bad.header.Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
+		t.Fatalf("错误体应该是 JSON：%q", got)
+	}
+	if detail := decode[errorBody](t, bad.body).Detail; detail == "" {
+		t.Fatalf("错误体缺少 detail：%s", bad.body)
+	}
+	if got := bad.header.Get("Content-Language"); got != "zh" {
+		t.Fatalf("Content-Language = %q", got)
+	}
+	if got := bad.header.Get("Vary"); !strings.Contains(got, "Accept-Language") {
+		t.Fatalf("Vary = %q", got)
+	}
+	for header, want := range map[string]string{
+		"X-Content-Type-Options": "nosniff",
+		"Referrer-Policy":        "no-referrer",
+		"X-Frame-Options":        "DENY",
+	} {
+		if got := bad.header.Get(header); got != want {
+			t.Fatalf("%s = %q，想要 %q", header, got, want)
+		}
+	}
+
+	wrong := call(t, env, http.MethodDelete, "/api/health", "")
+	if wrong.status != http.StatusMethodNotAllowed {
+		t.Fatalf("方法不对应该 405，拿到 %d（%s）", wrong.status, wrong.body)
+	}
+	if got := wrong.header.Get("Allow"); got != "GET, HEAD" {
+		t.Fatalf("Allow = %q", got)
+	}
+	if decode[errorBody](t, wrong.body).Detail == "" {
+		t.Fatalf("405 也要有 detail：%s", wrong.body)
+	}
+
+	// /api/messages/files 只接受 PUT，但它和 GET /api/messages/{message_id} 不可比，
+	// 所以 405 得按实际路径把 Allow 查回来。
+	upload := call(t, env, http.MethodPost, "/api/messages/files?name=a.txt", "x")
+	if upload.status != http.StatusMethodNotAllowed {
+		t.Fatalf("POST 到上传口应该 405，拿到 %d（%s）", upload.status, upload.body)
+	}
+	if got := upload.header.Get("Allow"); got != "PUT" {
+		t.Fatalf("上传口的 Allow = %q，想要 PUT", got)
+	}
+}
+
+// readyz 失败时细节只进后端日志，不回给调用方。
+func TestReadyzKeepsDetailInLog(t *testing.T) {
+	env := testenv.New(t, testenv.DefaultSource)
+	if err := os.Chmod(env.DataDir, 0o500); err != nil {
+		t.Fatalf("改权限失败：%v", err)
+	}
+	t.Cleanup(func() { os.Chmod(env.DataDir, 0o700) })
+
+	response := call(t, env, http.MethodGet, "/readyz", "")
+	if response.status != http.StatusServiceUnavailable {
+		t.Fatalf("数据目录权限不对应该 503，拿到 %d（%s）", response.status, response.body)
+	}
+	if strings.Contains(string(response.body), env.DataDir) {
+		t.Fatalf("不应该把细节回给调用方：%s", response.body)
+	}
+}
+
 type event struct {
 	name string
 	data string
@@ -469,14 +541,14 @@ func TestHealthAndProbes(t *testing.T) {
 		t.Fatalf("/readyz = %d（%s）", response.status, response.body)
 	}
 
-	guarded := testenv.NewWith(t, testenv.DefaultSource, testenv.Options{ReadyzToken: "tok"})
-	if response := call(t, guarded, http.MethodGet, "/readyz", ""); response.status != http.StatusForbidden {
-		t.Fatalf("没带 token 应该 403，拿到 %d", response.status)
+	guarded := testenv.NewWith(t, testenv.DefaultSource, testenv.Options{ReadyzToken: "tok_0123456789ab"})
+	if response := call(t, guarded, http.MethodGet, "/readyz", ""); response.status != http.StatusUnauthorized {
+		t.Fatalf("没带 token 应该 401，拿到 %d", response.status)
 	}
-	if response := call(t, guarded, http.MethodGet, "/readyz?token=wrong", ""); response.status != http.StatusForbidden {
-		t.Fatalf("token 不对应该 403，拿到 %d", response.status)
+	if response := call(t, guarded, http.MethodGet, "/readyz?token=wrong", ""); response.status != http.StatusUnauthorized {
+		t.Fatalf("token 不对应该 401，拿到 %d", response.status)
 	}
-	if response := call(t, guarded, http.MethodGet, "/readyz?token=tok", ""); response.status != http.StatusOK {
+	if response := call(t, guarded, http.MethodGet, "/readyz?token=tok_0123456789ab", ""); response.status != http.StatusOK {
 		t.Fatalf("token 对了应该 200，拿到 %d", response.status)
 	}
 }
@@ -499,7 +571,10 @@ func TestStaticFiles(t *testing.T) {
 		t.Fatalf("静态路径只允许 GET/HEAD：%d %v", method.status, method.header)
 	}
 	unknown := call(t, env, http.MethodGet, "/api/nope", "")
-	if unknown.status != http.StatusNotFound || !strings.Contains(string(unknown.body), "not found") {
-		t.Fatalf("未知 API 应该回 JSON 404：%d %s", unknown.status, unknown.body)
+	if unknown.status != http.StatusNotFound {
+		t.Fatalf("未知 API 应该回 404：%d %s", unknown.status, unknown.body)
+	}
+	if detail := decode[errorBody](t, unknown.body).Detail; detail == "" {
+		t.Fatalf("错误体应该是 {detail: …}：%s", unknown.body)
 	}
 }

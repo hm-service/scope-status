@@ -8,8 +8,8 @@ on:
             - "AGENTS.md"
             - "DESIGN.md"
             - "justfile"
-            - "k8s.yaml"
-            - "quadlet-kube.kube"
+            - "k8s.scope-status.yaml"
+            - "scope-status.kube"
             - "LICENSE"
             - "README.md"
             - "docs/**"
@@ -56,7 +56,7 @@ jobs:
             - name: Set up pnpm
               uses: pnpm/action-setup@v6
               with:
-                  version: 12
+                  version: 12.4.1
 
             - name: Set up Node
               uses: actions/setup-node@v7
@@ -122,7 +122,6 @@ jobs:
                   context: .
                   push: true
                   provenance: false
-                  # amd64 + arm64 双架构：构建阶段在 $BUILDPLATFORM 上交叉编译，
                   platforms: linux/amd64,linux/arm64
                   # 同时打上 latest 和 日期 tag
                   tags: |

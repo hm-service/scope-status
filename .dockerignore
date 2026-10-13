@@ -12,16 +12,11 @@
 # 构建产物（just build 的输出都在 .dist/；不进构建上下文）
 /.dist/
 
-# Go 缓存：默认在 $HOME，$HOME 只读时由 justfile 重定向到这里
+# Go 缓存（默认在 $HOME；万一临时重定向到仓库里，也别打进镜像）
 /.go-build/
-/.gopath/
 /.go-mod-cache/
 
-# 前端包管理器的缓存
-/.npm-cache/
-/.pnpm-store/
-
-# 运行时数据（DATA_DIR），首次启动自动重建
+# 运行时数据（数据库含 -wal / -shm、密钥等），首次启动自动重建
 /.data/
 /.data_sample/
 
@@ -30,20 +25,28 @@
 /frontend/node_modules/
 /frontend/dist/
 
-# 参考项目 / 概念验证 / 验证截图
+# 参考项目（本地 clone）
 /.ref/
-/.scratch/
+
+# 验证截图与本机临时脚本
 /.shots/
 
 # 换实现语言时归档的旧版本
 /.prototype/
+
+# ---- 本机环境：$HOME 只读时把缓存重定向到仓库里（justfile 调用时用）----
+/.gopath/
+/.npm-cache/
+/.pnpm-store/
+
+# 人写的配置固定放在 DATA_DIR 根；仓库根这份只是保险，别提交
+/source.yaml
 
 # agent / 编辑器 / 语言运行时自带的目录
 /.agents/
 /.claude/
 /.codex/
 /.venv/
-/.uv-cache/
 
 # 环境变量与日志
 /.env
@@ -55,6 +58,6 @@
 /README.md
 /DESIGN.md
 /AGENTS.md
-/k8s.yaml
-/quadlet-kube.kube
+/k8s.*.yaml
+/*.kube
 /justfile

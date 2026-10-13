@@ -3,7 +3,7 @@
 # ==========================================
 FROM --platform=$BUILDPLATFORM node:26-alpine AS frontend
 
-# 与 frontend/package.json 的 packageManager 保持一致（这条 Node 线里没有 corepack）
+# 与 frontend/package.json 的 packageManager 保持一致
 ARG PNPM_VERSION=12.4.1
 RUN npm install -g pnpm@${PNPM_VERSION}
 
@@ -39,14 +39,15 @@ COPY . .
 COPY --from=frontend /build/frontend/dist ./frontend/dist
 
 # -ldflags="-w -s"：移除调试信息与符号表，明显减小二进制
-RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -buildvcs=false -ldflags="-w -s" -trimpath -o app.bin .
+# -trimpath 从编译后的可执行文件中移除所有本地文件系统路径，以生成可复现的构建结果
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="-w -s" -trimpath -o app.bin .
 
 # ==========================================
 # 第三阶段：运行
 # ==========================================
 FROM alpine:3
 
-# podman 把 kube 的 httpGet 探针翻译成 `curl -f <url> || exit 1` 在容器里执行，
+# Podman 会把 kube 的 httpGet 存活探针翻译成 `curl -f <url> || exit 1` 在容器里执行，
 # 镜像里没有 curl 探针就恒失败，容器会被反复判 unhealthy 后重启。
 RUN apk --no-cache add ca-certificates curl tzdata
 
@@ -54,11 +55,6 @@ WORKDIR /app
 
 # 运行时只有这一个二进制：前端产物已经 go:embed 进去，frontend/ 整个不进最终镜像
 COPY --from=builder /build/app.bin .
-
-ENV TZ=Asia/Shanghai \
-    DATA_DIR=/data \
-    HOST=0.0.0.0 \
-    PORT=8080
 
 VOLUME ["/data"]
 EXPOSE 8080

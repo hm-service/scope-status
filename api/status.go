@@ -118,18 +118,20 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	if s.opts.ReadyzToken != "" {
 		token := r.URL.Query().Get("token")
 		if subtle.ConstantTimeCompare([]byte(token), []byte(s.opts.ReadyzToken)) != 1 {
-			err := core.Forbidden(i18n.KeyHTTPTokenBad)
-			s.logBusiness(slog.LevelWarn, "readyz", r, err)
-			writeError(w, r, err)
+			s.logBusiness(slog.LevelWarn, "readyz", r, core.Forbidden(i18n.KeyHTTPTokenBad))
+			// 探针的失败细节只进后端日志，不回给调用方
+			w.Header().Set("WWW-Authenticate", "Bearer")
+			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 	}
+	// 失败原因只进后端日志，不回给调用方
 	if err := s.opts.App.Ready(); err != nil {
 		s.logBusiness(slog.LevelWarn, "readyz", r, err)
-		writeError(w, r, err)
+		httpx.Fail(w, http.StatusServiceUnavailable, i18n.T(langOf(r), i18n.KeyHTTPNotReady))
 		return
 	}
-	s.opts.Logger.Info("readyz", "ip", httpx.ClientIP(r, s.opts.TrustedProxies), "ok", true)
+	s.opts.Logger.Info("readyz", "client_ip", httpx.ClientIP(r, s.opts.TrustedProxies), "ok", true)
 	httpx.Text(w, http.StatusOK, "ok\n")
 }
 

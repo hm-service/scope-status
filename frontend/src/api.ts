@@ -1,4 +1,4 @@
-// fetch 封装：每次请求都带 Accept-Language，服务端的纯文本错误原文照收。
+// fetch 封装：每次请求都带 Accept-Language；错误体统一是 {"detail": "…"}。
 import { lang } from './i18n'
 import type { Attachment, DeleteResult, Message, MessageInput, MessagesFrame, ReloadResult, Snapshot } from './types'
 
@@ -22,15 +22,19 @@ function jsonHeaders(): Record<string, string> {
   return { ...baseHeaders(), 'Content-Type': 'application/json' }
 }
 
-/** 非 2xx：把纯文本正文原样收进 ApiError，正文为空才退回 HTTP 状态码。 */
+/** 非 2xx：读统一错误体里的 detail；正文不是 JSON（比如反代自己吐的 HTML）就退回 HTTP 状态码。 */
 async function errorFrom(response: Response): Promise<ApiError> {
-  let body = ''
+  let detail = ''
   try {
-    body = (await response.text()).trim()
+    const body = (await response.text()).trim()
+    const parsed: unknown = body === '' ? undefined : JSON.parse(body)
+    if (typeof parsed === 'object' && parsed !== null && typeof (parsed as { detail?: unknown }).detail === 'string') {
+      detail = (parsed as { detail: string }).detail
+    }
   } catch {
-    body = ''
+    detail = ''
   }
-  return new ApiError(response.status, body)
+  return new ApiError(response.status, detail)
 }
 
 /** 当前共享快照；还没有快照时服务端回 204，这里给 null。 */

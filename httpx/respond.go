@@ -12,13 +12,18 @@ import (
 func JSON(w http.ResponseWriter, status int, payload any) {
 	body, err := json.Marshal(payload)
 	if err != nil {
-		Text(w, http.StatusInternalServerError, err.Error()+"\n")
+		Fail(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	w.Write(body)
+}
+
+// Fail 是 /api/* 统一的错误体：{"detail": "…"}，前端只读 detail。
+func Fail(w http.ResponseWriter, status int, detail string) {
+	JSON(w, status, map[string]string{"detail": detail})
 }
 
 func Text(w http.ResponseWriter, status int, body string) {

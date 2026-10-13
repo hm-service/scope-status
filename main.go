@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -21,6 +22,17 @@ import (
 	"github.com/hm-service/scope-status/app"
 	"github.com/hm-service/scope-status/core"
 )
+
+const (
+	// 优雅退出的宽限期；超过就强关，并以此退出码表明是被强制的
+	shutdownGrace      = 5 * time.Second
+	exitShutdownForced = 254
+)
+
+// /readyz 的口令：够长的随机串，只允许小写字母、数字与下划线
+var readyzTokenPattern = regexp.MustCompile(`^[a-z0-9_]{16,128}$`)
+
+var hostPattern = regexp.MustCompile(`^[a-zA-Z0-9.-]+$`)
 
 type envConfig struct {
 	DataDir              string
@@ -35,24 +47,26 @@ type envConfig struct {
 }
 
 func main() {
-	if err := run(); err != nil {
-		var business *core.Error
-		if errors.As(err, &business) {
-			slog.Error("startup failed", "key", string(business.Key), "args", business.Args, "status", business.Status)
-		} else {
-			slog.Error("startup failed", "error", err.Error())
-		}
-		os.Exit(1)
-	}
+	os.Exit(run())
 }
 
-func run() error {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+func run() int {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+		// 访问日志里的时间戳按规范叫 timestamp
+		ReplaceAttr: func(_ []string, attr slog.Attr) slog.Attr {
+			if attr.Key == slog.TimeKey {
+				attr.Key = "timestamp"
+			}
+			return attr
+		},
+	}))
 	slog.SetDefault(logger)
 
 	cfg, err := loadEnv()
 	if err != nil {
-		return err
+		startupFailed(err)
+		return 1
 	}
 	application, err := app.New(app.Config{
 		DataDir:        cfg.DataDir,
@@ -60,13 +74,14 @@ func run() error {
 		MaxUploadBytes: cfg.MaxUploadBytes,
 	})
 	if err != nil {
-		return err
+		startupFailed(err)
+		return 1
 	}
 	static, err := fs.Sub(Dist, "frontend/dist")
 	if err != nil {
-		return err
+		startupFailed(err)
+		return 1
 	}
-
 	handler := api.New(api.Options{
 		App:                  application,
 		Static:               static,
@@ -77,40 +92,71 @@ func run() error {
 		MaxStaticConcurrency: cfg.MaxStaticConcurrency,
 	}).Handler()
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+	// 先占住端口再打启动日志：绑不上就直接失败，不留下一句"已启动"
+	listener, err := net.Listen("tcp", net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)))
+	if err != nil {
+		startupFailed(err)
+		return 1
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	if cfg.StreamInterval > 0 {
 		go application.Monitor.Stream(ctx)
 	}
 
 	server := &http.Server{
-		Addr:              net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)),
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
-	logger.Info("listening",
-		"addr", server.Addr,
-		"sourceFile", application.SourcePath,
-		"dataDir", cfg.DataDir,
-		"streamIntervalSeconds", cfg.StreamInterval.Seconds(),
-		"maxUploadBytes", cfg.MaxUploadBytes,
+	logger.Info("server started",
+		"addr", listener.Addr().String(),
+		"data_dir", cfg.DataDir,
+		"start_at", time.Now().Format(time.RFC3339),
 	)
 
-	serverError := make(chan error, 1)
-	go func() { serverError <- server.ListenAndServe() }()
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- server.Serve(listener) }()
+
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(signals)
+
+	var received os.Signal
 	select {
-	case err := <-serverError:
+	case err := <-serveErr:
+		cancel()
 		if errors.Is(err, http.ErrServerClosed) {
-			return nil
+			return 0
 		}
-		return err
-	case <-ctx.Done():
+		startupFailed(err)
+		return 1
+	case received = <-signals:
+		// 收到第一次停止信号后就不再受理，避免连按几下打断优雅退出
+		signal.Stop(signals)
+		logger.Info("shutdown signal received", "signal", received.String())
 	}
 
-	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return server.Shutdown(shutdown)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownGrace)
+	defer shutdownCancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		logger.Error("server shutdown forced", "signal", received.String(), "error", err.Error())
+		server.Close()
+		return exitShutdownForced
+	}
+	cancel()
+	logger.Info("server shutdown", "signal", received.String(), "stop_at", time.Now().Format(time.RFC3339))
+	return 0
+}
+
+func startupFailed(err error) {
+	var business *core.Error
+	if errors.As(err, &business) {
+		slog.Error("startup failed", "key", string(business.Key), "args", business.Args, "status", business.Status)
+		return
+	}
+	slog.Error("startup failed", "error", err.Error())
 }
 
 func loadEnv() (envConfig, error) {
@@ -120,6 +166,19 @@ func loadEnv() (envConfig, error) {
 	}
 	if port < 1 || port > 65535 {
 		return envConfig{}, fmt.Errorf("PORT must be within 1-65535, got %d", port)
+	}
+	host := envString("HOST", "127.0.0.1")
+	if _, err := netip.ParseAddr(host); err != nil && !hostPattern.MatchString(host) {
+		return envConfig{}, fmt.Errorf("HOST must be an IP or a hostname, got %q", host)
+	}
+	if timezone := strings.TrimSpace(os.Getenv("TZ")); timezone != "" {
+		if _, err := time.LoadLocation(timezone); err != nil {
+			return envConfig{}, fmt.Errorf("TZ %q is not a known timezone: %w", timezone, err)
+		}
+	}
+	readyzToken := strings.TrimSpace(os.Getenv("READYZ_TOKEN"))
+	if readyzToken != "" && !readyzTokenPattern.MatchString(readyzToken) {
+		return envConfig{}, fmt.Errorf("READYZ_TOKEN must be 16-128 chars of [a-z0-9_], got %d chars", len(readyzToken))
 	}
 	streamSeconds, err := envFloat("STREAM_INTERVAL", 5)
 	if err != nil {
@@ -132,9 +191,15 @@ func loadEnv() (envConfig, error) {
 	if err != nil {
 		return envConfig{}, err
 	}
+	if maxAPI < 1 {
+		return envConfig{}, fmt.Errorf("MAX_API_CONCURRENCY must be positive, got %d", maxAPI)
+	}
 	maxStatic, err := envInt("MAX_STATIC_CONCURRENCY", 64)
 	if err != nil {
 		return envConfig{}, err
+	}
+	if maxStatic < 1 {
+		return envConfig{}, fmt.Errorf("MAX_STATIC_CONCURRENCY must be positive, got %d", maxStatic)
 	}
 	maxUpload, err := envInt("MAX_UPLOAD_BYTES", int(core.MaxUploadBytes))
 	if err != nil {
@@ -147,13 +212,12 @@ func loadEnv() (envConfig, error) {
 	if err != nil {
 		return envConfig{}, err
 	}
-	// 配置与状态同放一个目录：DATA_DIR 挂到哪，配置就在哪
-	dataDir := envString("DATA_DIR", "/data")
 	return envConfig{
-		DataDir:              dataDir,
-		Host:                 envString("HOST", "127.0.0.1"),
+		// 配置与状态同放一个目录：DATA_DIR 挂到哪，配置就在哪
+		DataDir:              envString("DATA_DIR", "/data"),
+		Host:                 host,
 		Port:                 port,
-		ReadyzToken:          os.Getenv("READYZ_TOKEN"),
+		ReadyzToken:          readyzToken,
 		TrustedProxies:       trusted,
 		StreamInterval:       time.Duration(streamSeconds * float64(time.Second)),
 		MaxAPIConcurrency:    maxAPI,

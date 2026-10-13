@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -52,14 +53,32 @@ func New(cfg Config) (*App, error) {
 	}, nil
 }
 
-// Ready 断言依赖真的就绪：配置在、数据目录可写。
+// Ready 断言依赖真的就绪：配置在、数据目录与数据文件权限对、目录可写。
 func (a *App) Ready() error {
 	if a.Monitor.Source() == nil {
 		return core.ConfigError(i18n.KeyConfigMissing, a.SourcePath)
 	}
+	if err := checkDirMode(a.DataDir); err != nil {
+		return core.ServerError(i18n.KeyHTTPNotReadyCause, err.Error())
+	}
+	if err := a.Messages.Store().CheckPermissions(); err != nil {
+		return core.ServerError(i18n.KeyHTTPNotReadyCause, err.Error())
+	}
 	probe := filepath.Join(a.DataDir, ".readyz")
 	if err := os.WriteFile(probe, []byte("ok"), 0o600); err != nil {
-		return core.ServerError(i18n.KeyHTTPNotReady, err.Error())
+		return core.ServerError(i18n.KeyHTTPNotReadyCause, err.Error())
 	}
 	return os.Remove(probe)
+}
+
+// checkDirMode 断言目录权限被收紧到 0700。
+func checkDirMode(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode().Perm() != 0o700 {
+		return fmt.Errorf("%s mode is %v, want 0700", path, info.Mode().Perm())
+	}
+	return nil
 }

@@ -2,8 +2,8 @@
 Description=%p application
 
 [Kube]
-Yaml=./%p.yaml
-Network=<proxy-network>
+Yaml=./k8s.%p.yaml
+Network=apps
 LogDriver=journald
 ExitCodePropagation=any
 KubeDownForce=false

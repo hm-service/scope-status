@@ -37,7 +37,10 @@ services:
       版本: 1.6
 
 links:
-  - name: 面板
-    url: https://panel.example.com/
-    probe_url: https://panel.example.com/healthz
+  # 探测地址要能解析：解析不了是硬错误，会把 SSE 循环直接停掉
+  - name: 示例站点
+    url: https://example.com/
+    expect_status: 200
+  - name: 内网面板
+    url: http://192.0.2.80/     # TEST-NET 地址，只会超时，不会解析失败
     expect_status: 200

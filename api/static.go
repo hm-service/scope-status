@@ -15,7 +15,7 @@ import (
 func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 	lang := langOf(r)
 	if strings.HasPrefix(r.URL.Path, "/api/") {
-		httpx.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		httpx.Fail(w, http.StatusNotFound, i18n.T(lang, i18n.KeyHTTPNotFound, r.URL.Path))
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {

@@ -144,6 +144,49 @@ func (s *MessageStore) poolFiles() ([]string, error) {
 	return names, nil
 }
 
+// CheckPermissions 断言数据文件权限：消息 json 与附件池里的文件都必须是 0600。
+func (s *MessageStore) CheckPermissions() error {
+	for _, dir := range []string{s.root, s.files} {
+		info, err := os.Stat(dir)
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() || info.Mode().Perm() != 0o700 {
+			return fmt.Errorf("%s mode is %v, want 0700", dir, info.Mode().Perm())
+		}
+	}
+	ids, err := s.ids()
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := checkFileMode(s.messagePath(id)); err != nil {
+			return err
+		}
+	}
+	names, err := s.poolFiles()
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		if err := checkFileMode(s.poolPath(name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func checkFileMode(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode().Perm() != 0o600 {
+		return fmt.Errorf("%s mode is %v, want 0600", path, info.Mode().Perm())
+	}
+	return nil
+}
+
 // List 返回所有未删除的消息，按时间戳倒序（新的在前）。
 func (s *MessageStore) List() ([]core.Message, error) {
 	ids, err := s.ids()

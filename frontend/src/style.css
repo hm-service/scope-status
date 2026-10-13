@@ -66,6 +66,9 @@ body {
   margin-bottom: 18px;
 }
 
+/* 允许标题块收缩：否则英文文案会把 ⋯ 按钮挤出屏幕 */
+.brand { min-width: 0; }
+
 h1 { margin: 0; font-size: 20px; font-weight: 650; letter-spacing: .2px; }
 
 .meta {
@@ -726,7 +729,7 @@ main { padding-bottom: 8px; }
   h1 { font-size: 19px; }
   .meta { flex-direction: column; align-items: flex-start; gap: 3px; margin-top: 4px; }
   .meta .sep { display: none; }
-  .meta-right { margin-left: 0; flex-direction: row-reverse; justify-content: flex-end; gap: 6px; width: 100%; }
+  .meta-right { margin-left: 0; flex-direction: row-reverse; justify-content: flex-end; gap: 6px; width: 100%; white-space: normal; }
   #menu { display: inline-flex; padding: 6px 12px; font-size: 16px; line-height: 1; }
   #actions > #refresh, #actions > #reload, #actions > #lang, #actions > #theme { display: none; }
 

@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-// ClientIP 取真实客户端 IP：来源不在可信反代里就用连接地址，
-// 在的话从 X-Forwarded-For 右边往回找第一个不可信地址。
+// ClientIP 取真实客户端 IP：来源不在可信反代里就用连接地址；
+// 在的话从 X-Forwarded-For 右边往回找第一个不可信地址，没有 XFF 才退回 X-Real-IP。
 func ClientIP(r *http.Request, trusted []netip.Prefix) string {
 	remote := remoteHost(r.RemoteAddr)
 	remoteAddr, err := netip.ParseAddr(remote)
@@ -20,6 +20,12 @@ func ClientIP(r *http.Request, trusted []netip.Prefix) string {
 		if trimmed := strings.TrimSpace(part); trimmed != "" {
 			chain = append(chain, trimmed)
 		}
+	}
+	if len(chain) == 0 {
+		if real := strings.TrimSpace(r.Header.Get("X-Real-IP")); real != "" {
+			return remoteHost(real)
+		}
+		return remote
 	}
 	chain = append(chain, remote)
 	for index := len(chain) - 1; index >= 0; index-- {

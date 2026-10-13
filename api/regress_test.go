@@ -85,3 +85,28 @@ func TestRegressHelloFrameShape(t *testing.T) {
 		t.Fatalf("streamInterval = %v", fields["streamInterval"])
 	}
 }
+
+// 回归：/api/messages/files 与 /api/messages/{message_id} 在 ServeMux 里互不可比（直接 panic），
+// 现在改成手写分段路由：字面量优先，Allow 按真实方法给。
+func TestRegressAmbiguousRoutes(t *testing.T) {
+	env := testenv.New(t, testenv.DefaultSource)
+
+	get := call(t, env, http.MethodGet, "/api/messages/files", "")
+	if get.status != http.StatusMethodNotAllowed || get.header.Get("Allow") != "PUT" {
+		t.Fatalf("GET 上传口应该是 405 + Allow: PUT，拿到 %d %q", get.status, get.header.Get("Allow"))
+	}
+	patch := call(t, env, http.MethodPatch, "/api/messages/files", "{}")
+	if patch.status != http.StatusMethodNotAllowed || patch.header.Get("Allow") != "PUT" {
+		t.Fatalf("PATCH 上传口应该是 405 + Allow: PUT，拿到 %d %q", patch.status, patch.header.Get("Allow"))
+	}
+	// 下载路由仍然可达（缺 ?id= 时 400），说明字面量优先没有把通配路由吃掉
+	download := call(t, env, http.MethodGet, "/api/messages/files/"+strings.Repeat("a", 64), "")
+	if download.status != http.StatusBadRequest {
+		t.Fatalf("下载口缺 ?id= 应该 400，拿到 %d（%s）", download.status, download.body)
+	}
+	// 通配路由的方法兜底也要准
+	unlock := call(t, env, http.MethodGet, "/api/messages/message-2026-01-01-00-00-00-0000-abc123/unlock", "")
+	if unlock.status != http.StatusMethodNotAllowed || unlock.header.Get("Allow") != "POST" {
+		t.Fatalf("unlock 的 405 不对：%d %q", unlock.status, unlock.header.Get("Allow"))
+	}
+}

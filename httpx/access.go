@@ -26,7 +26,7 @@ func (l *AccessLog) Middleware(next http.Handler) http.Handler {
 		recorder := &recorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(recorder, r)
 		l.Logger.Info("access",
-			"ip", ClientIP(r, l.Trusted),
+			"client_ip", ClientIP(r, l.Trusted),
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", recorder.status,

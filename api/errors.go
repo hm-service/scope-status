@@ -21,9 +21,12 @@ type contextKey int
 
 const langKey contextKey = 0
 
+// withLang 协商语言，并把 Content-Language / Vary 一并写进响应头。
 func withLang(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		lang := i18n.Negotiate(r.Header.Get("Accept-Language"))
+		w.Header().Set("Content-Language", string(lang))
+		w.Header().Add("Vary", "Accept-Language")
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), langKey, lang)))
 	})
 }
@@ -35,15 +38,15 @@ func langOf(r *http.Request) i18n.Lang {
 	return i18n.Negotiate(r.Header.Get("Accept-Language"))
 }
 
-// writeError 把业务错误按请求语言渲染成纯文本，状态码跟着错误走。
+// writeError 把业务错误按请求语言渲染好，塞进统一的 {"detail": …} 错误体。
 func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	lang := langOf(r)
 	var business *core.Error
 	if errors.As(err, &business) {
-		httpx.Text(w, business.Status, i18n.T(lang, business.Key, business.Args...)+"\n")
+		httpx.Fail(w, business.Status, i18n.T(lang, business.Key, business.Args...))
 		return
 	}
-	httpx.Text(w, http.StatusInternalServerError, i18n.T(lang, i18n.KeyHTTPInternal, err.Error())+"\n")
+	httpx.Fail(w, http.StatusInternalServerError, i18n.T(lang, i18n.KeyHTTPInternal, err.Error()))
 }
 
 func readJSONBody(r *http.Request) (map[string]json.RawMessage, error) {

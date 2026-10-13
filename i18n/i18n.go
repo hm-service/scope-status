@@ -142,6 +142,7 @@ const (
 	KeyAppTitle             Key = "app.title"
 	KeyHTTPNotFound         Key = "http.error.not-found"
 	KeyHTTPNotReady         Key = "http.error.not-ready"
+	KeyHTTPNotReadyCause    Key = "http.error.not-ready-cause"
 	KeyHTTPTokenBad         Key = "http.error.token-bad"
 	KeyHTTPInternal         Key = "http.error.internal"
 	KeyHTTPNoFlush          Key = "http.error.no-flush"
@@ -270,7 +271,8 @@ var zh = map[Key]string{
 
 	KeyAppTitle:             "Scope Status",
 	KeyHTTPNotFound:         "接口不存在：%s",
-	KeyHTTPNotReady:         "还没有就绪：%s",
+	KeyHTTPNotReady:         "服务还没就绪",
+	KeyHTTPNotReadyCause:    "没有就绪：%s",
 	KeyHTTPTokenBad:         "token 不对",
 	KeyHTTPInternal:         "服务端错误：%s",
 	KeyHTTPNoFlush:          "这个连接不支持流式推送",
@@ -396,7 +398,8 @@ var en = map[Key]string{
 
 	KeyAppTitle:             "Scope Status",
 	KeyHTTPNotFound:         "no such endpoint: %s",
-	KeyHTTPNotReady:         "not ready yet: %s",
+	KeyHTTPNotReady:         "service is not ready yet",
+	KeyHTTPNotReadyCause:    "not ready: %s",
 	KeyHTTPTokenBad:         "bad token",
 	KeyHTTPInternal:         "server error: %s",
 	KeyHTTPNoFlush:          "this connection cannot stream",

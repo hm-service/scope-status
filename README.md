@@ -11,6 +11,7 @@
 - 配置与状态都在 `DATA_DIR`：手写的 `<DATA_DIR>/source.yaml` + 消息 `<DATA_DIR>/messages`，挂一个卷就是全部。
 - 推送：只有 SSE，没有轮询；`GET /api/status` 读的是共享快照，恒定时间返回。
 - 文案：中英双语，前后端各一张表，未知键原样显示（漏配一眼可见）。
+- 依赖只有一个 `gopkg.in/yaml.v3`：`source.yaml` 是人手写的 YAML，标准库没有解析器；其余全走标准库。
 
 ## 功能
 
@@ -53,6 +54,7 @@ DATA_DIR=$PWD/.data go run .          # 配置默认读 .data/source.yaml
 | `just run` | 本机跑起来（数据与配置都在 `.data/`） |
 | `just check` | 提交前跑一遍：`go vet` + `go test` + 前端 `pnpm typecheck` |
 | `just test` | 全部测试（`go test ./... -count=1`） |
+| `just run` / `just stop` | 本机起停（`DATA_DIR` / `PORT` 可用环境变量覆盖，默认 `./.data` + 8080） |
 | `just fmt` / `just clean` | `go fmt` / 清构建产物与缓存 |
 
 > justfile 就是模板那一份，不做本地适配：Go 与 pnpm 的缓存用你自己的默认位置。`$HOME` 只读的环境（容器、CI）在调用时自己带上 `GOPATH=... GOCACHE=... npm_config_cache=...` 即可。
@@ -140,7 +142,11 @@ curl -sN localhost:8080/api/events                # SSE：messages / snapshot / 
 curl -sX POST localhost:8080/api/reload | jq .message
 ```
 
-`/api/status` 不带参数时读的是后台循环维护的共享快照（恒定时间）；有 SSE 循环时在首帧探测完成前回 `204`，让前端等推送。服务端渲染的文案（探测详情、错误）跟随请求或 SSE 连接的 `Accept-Language`。
+`/api/status` 不带参数时读的是后台循环维护的共享快照（恒定时间）；有 SSE 循环时在首帧探测完成前回 `204`，让前端等推送。服务端渲染的文案（探测详情、错误）跟随请求或 SSE 连接的 `Accept-Language`，响应头带 `Content-Language` 与 `Vary: Accept-Language`。
+
+`/api/*` 的错误体统一是 `{"detail": "…"}`（前端只读 `detail`），方法不对回 `405` 并带准的 `Allow`；所有响应带
+`X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`。`/livez` 永远 200 且不记日志；
+`/readyz` 校验口令（不对回 `401`）与数据目录 / 数据文件权限（不对回 `503`，细节只进后端日志）。
 
 ## 消息面板
 
@@ -179,8 +185,8 @@ $DATA_DIR/messages/files/<sha256>                                    附件池�
 只用标准库 `testing`，表格驱动 + `t.Run`；`internal/testenv` 造临时 `DATA_DIR` 与临时配置文件，测试不碰真实数据。每个修过的 bug 在对应包的 `regress_test.go` 里钉一条用例。
 
 ```bash
-just test     # go test ./... -count=1
-just cover    # 带覆盖率
+just test                              # go test ./... -count=1
+go test ./... -count=1 -cover          # 逐包覆盖率
 just check    # vet + test + 前端 vue-tsc
 ```
 
@@ -189,11 +195,11 @@ just check    # vet + test + 前端 vue-tsc
 | 包 | 覆盖率 | 说明 |
 | --- | --- | --- |
 | `core` | 82.8% | 配置解析与校验、探测、消息标识与口令 |
-| `store` | 79.1% | `source.yaml` 读取、消息与附件池读写 |
-| `app` | 76.7% | 探测循环、快照、广播、消息用例 |
-| `api` | 75.0% | 路由、SSE、消息接口、静态文件、探针 |
+| `store` | 73.6% | `source.yaml` 读取、消息与附件池读写 |
+| `app` | 73.5% | 探测循环、快照、广播、消息用例 |
+| `api` | 77.6% | 路由、SSE、消息接口、静态文件、探针 |
 | `i18n` | 87.1% | 语言协商与文案表 |
-| `httpx` | 60.3% | 响应helper、客户端 IP、访问日志 |
+| `httpx` | 55.1% | 响应小工具、客户端 IP、访问日志、安全头 |
 
 `go test -race ./...` 也是干净的。
 
@@ -210,10 +216,9 @@ httpx/               HTTP 小工具：JSON / 文本响应、客户端 IP、访�
 i18n/                后端文案表与 T(lang, key, args…)
 frontend/            前端工程（pnpm + Vite + Vue + TS），构建产物 frontend/dist
 internal/testenv/    测试脚手架：临时 DATA_DIR、临时配置、现成的测试服务
-tools/shot.mjs       零依赖 CDP 小工具：截图 + 点击 + 控制台错误转发
 docs/                截图与反代示例
-k8s.yaml             Pod + PVC + ConfigMap（podman kube play / systemd 模板）
-quadlet-kube.kube    systemd quadlet 模板
+k8s.scope-status.yaml  Pod + PVC + ConfigMap（podman kube play / systemd 模板）
+scope-status.kube      systemd quadlet 模板
 ```
 
 ## 部署
@@ -221,11 +226,11 @@ quadlet-kube.kube    systemd quadlet 模板
 ```bash
 just build                                    # .dist/app-linux-amd64 / arm64
 docker build -t scope-status .               # 或 podman build
-podman kube play k8s.yaml                      # ConfigMap 注环境变量，PVC 挂 /data
+podman kube play k8s.scope-status.yaml         # ConfigMap 注环境变量，PVC 挂 /data
 ```
 
 - 镜像分三个阶段：node 构建前端 → Go 交叉编译静态二进制 → alpine 运行时（只放那一个二进制 + curl/tzdata）。
-- `k8s.yaml` 里容器开 `readOnlyRootFilesystem` 并 `drop: ALL`，只有 `/data` 可写；`source.yaml` 用 ConfigMap 挂成 `/data/source.yaml`（里面有密码之类的敏感值，别提交进公共仓库，必要时换 Secret）。
+- `k8s.scope-status.yaml` 里容器开 `readOnlyRootFilesystem` 并 `drop: ALL`，只有 `/data` 可写；`<DATA_DIR>/source.yaml` 需要自己放进卷里（`podman cp` 或宿主目录型 PV），里面有密码，别提交进公共仓库。
 - 探针分两个：`/livez` 只看进程且不记日志；`/readyz` 查依赖（配置载入、数据目录可写）并记一条审计日志，`READYZ_TOKEN` 能挡住外部探测。
 - 反代要看 SSE：[`docs/reverse-proxy.md`](docs/reverse-proxy.md) 给了 nginx / Caddy 的要点（核心是关掉响应缓冲）。
 - 数据目录就是全部状态：`messages/` 下的消息与附件，删掉即重建。
