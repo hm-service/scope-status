@@ -9,6 +9,7 @@ const zh = {
   'auth.checking': '校验中…',
   'auth.failed': '校验失败：{message}',
   'auth.noSession': '服务端没有返回会话，稍后再试',
+  'auth.noStorage': '浏览器不让写 localStorage，存不下会话，请换一个浏览器或用非隐私窗口',
   'auth.hint': '口令只在登录时发一次；浏览器里留下的是服务端签发的会话令牌，服务端一重启就失效，需要重新登录。',
 
   'topbar.connecting': '连接中…',

@@ -26,7 +26,10 @@ async function submit(): Promise<void> {
       error.value = t('auth.noSession')
       return
     }
-    setSession(session)
+    if (!setSession(session)) {
+      error.value = t('auth.noStorage')
+      return
+    }
     // 原始 token 不留在浏览器里：换成会话之后立刻清掉输入框
     token.value = ''
     location.replace('/')

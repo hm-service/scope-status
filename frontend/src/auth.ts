@@ -11,11 +11,13 @@ export function getSession(): string {
   }
 }
 
-export function setSession(token: string): void {
+/** 写进 localStorage 才算成功：浏览器禁掉存储时返回 false，页面得说一声。 */
+export function setSession(token: string): boolean {
   try {
     localStorage.setItem(SESSION_KEY, token)
+    return localStorage.getItem(SESSION_KEY) === token
   } catch {
-    /* 存不下也照常进站，刷新后重新登录一次 */
+    return false
   }
 }
 

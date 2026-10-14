@@ -11,6 +11,7 @@ const en: Record<I18nKey, string> = {
   'auth.checking': 'Checking…',
   'auth.failed': 'Check failed: {message}',
   'auth.noSession': 'the server returned no session, try again',
+  'auth.noStorage': 'this browser refuses localStorage, so the session cannot be kept — try another browser or a normal window',
   'auth.hint': 'The token is sent once at login. The browser keeps a server-issued session token, which dies with the server process.',
 
   'topbar.connecting': 'Connecting…',
