@@ -75,7 +75,10 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 带上 `&` 的 `exp=…&nonce=…&sign=…` 写法没有采用：RFC 6750 的 `b64token` 不允许 `&`，严格的网关会直接判为非法凭证。
 
 响应头默认带 `Content-Language` + `Vary: Accept-Language`，以及 `X-Content-Type-Options: nosniff`、
-`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`。
+`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`，还有一条整站 CSP：`script-src 'self'`（页面里没有内联脚本，
+防闪主题是同源的 `/theme.js`）、`style-src 'self' 'unsafe-inline'`（Vue 的 `:style` 落在 style 属性上）、
+`img-src 'self' https:`（站点图标来自被监控站点自己的 URL）、`connect-src 'self'`、`frame-ancestors 'none'`、
+`base-uri 'none'`、`form-action 'self'`、`object-src 'none'`、`upgrade-insecure-requests`。
 
 | 方法         | 路径                                    | 说明                                                         |
 | ------------ | --------------------------------------- | ------------------------------------------------------------ |

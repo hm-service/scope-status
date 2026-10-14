@@ -52,6 +52,38 @@ func TestClientIP(t *testing.T) {
 	}
 }
 
+func TestSecurityHeaders(t *testing.T) {
+	handler := Security(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	want := map[string]string{
+		"X-Content-Type-Options":  "nosniff",
+		"Referrer-Policy":         "no-referrer",
+		"X-Frame-Options":         "DENY",
+		"Content-Security-Policy": ContentSecurityPolicy,
+	}
+	for name, value := range want {
+		if got := recorder.Header().Get(name); got != value {
+			t.Errorf("%s = %q，想要 %q", name, got, value)
+		}
+	}
+
+	// 页面里没有内联脚本，script-src 必须停在 'self'：这里一旦放开 'unsafe-inline'，
+	// CSP 对注入脚本就形同虚设。
+	for _, directive := range strings.Split(ContentSecurityPolicy, ";") {
+		if directive = strings.TrimSpace(directive); strings.HasPrefix(directive, "script-src") {
+			if directive != "script-src 'self'" {
+				t.Errorf("script-src = %q，想要 script-src 'self'", directive)
+			}
+			return
+		}
+	}
+	t.Fatal("CSP 里没有 script-src")
+}
+
 func TestRecorderKeepsStatusAndFlush(t *testing.T) {
 	inner := httptest.NewRecorder()
 	recorder := &recorder{ResponseWriter: inner, status: http.StatusOK}

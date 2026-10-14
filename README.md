@@ -203,7 +203,9 @@ curl -s -H "Authorization: Bearer $SESSION" localhost:8080/api/health | jq
 有效期 30 天（`sessionTTL`，在 `main.go`）；换 `SESSION_SIGNING_KEY` 等于全员登出，只换 `AUTH_TOKEN` 不会踢掉已有会话。
 
 `/api/*` 的错误体统一是 `{"detail": "…"}`（前端只读 `detail`），方法不对回 `405` 并带准的 `Allow`；所有响应带
-`X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`。`/livez` 永远 200 且不记日志；
+`X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`，以及一条尽量紧的 CSP
+（`script-src 'self'`，所以页面里没有内联脚本：防闪的主题是 `/theme.js`；图片额外放行 `https:`，因为站点图标来自被监控站点）。
+`/livez` 永远 200 且不记日志；
 `/readyz` 校验口令（不对回 `401`）与数据目录 / 数据文件权限（不对回 `503`，细节只进后端日志）。
 
 ## 消息面板
@@ -251,13 +253,13 @@ just check    # vet + test + 前端 vue-tsc
 
 | 包 | 覆盖率 | 说明 |
 | --- | --- | --- |
-| `main` | 37.2% | 环境变量校验：两个密钥必填、散列、清掉环境变量 |
+| `main` | 39.3% | 环境变量校验：两个密钥必填且形状合规、散列、清掉环境变量，入口页面不许有内联脚本 |
 | `core` | 84.0% | 配置解析与校验、探测、消息标识、口令的 Argon2id 摘要、无状态会话签名 |
 | `store` | 72.7% | `source.yaml` 读取、消息与附件池读写 |
-| `app` | 73.2% | 探测循环、快照、广播、消息用例 |
+| `app` | 73.9% | 探测循环、快照、广播、消息用例 |
 | `api` | 82.7% | 路由、登录换会话、会话鉴权、SSE、消息接口、静态文件、探针 |
 | `i18n` | 87.1% | 语言协商与文案表 |
-| `httpx` | 55.1% | 响应小工具、客户端 IP、访问日志、安全头 |
+| `httpx` | 64.3% | 响应小工具、客户端 IP、访问日志、安全头（含 CSP） |
 
 `go test -race ./...` 也是干净的。
 

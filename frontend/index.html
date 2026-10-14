@@ -5,11 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Scope Status</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <script>
-      // 在首次绘制前定好主题，避免闪一下；?theme=light|dark 可以强制指定
-      const forced = new URLSearchParams(location.search).get('theme');
-      document.documentElement.dataset.theme = forced || localStorage.getItem('scope-status-theme') || 'light';
-    </script>
+    <!-- 主题必须在首次绘制前生效，所以这段脚本阻塞渲染；内联会被 CSP 挡掉，故单独成文件 -->
+    <script src="/theme.js"></script>
   </head>
   <body>
     <div id="app"></div>

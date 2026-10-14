@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -142,5 +144,37 @@ func TestSecretsNotInheritedByChildren(t *testing.T) {
 	}
 	if len(out) != 2 || out[0] != ',' || out[1] != ',' {
 		t.Fatalf("子进程继承了密钥：%q", out)
+	}
+}
+
+// CSP 的 script-src 停在 'self'，所以入口页面里既不能有内联脚本，也不能引外部脚本：
+// 违反的话浏览器会静默挡掉，挡掉的正是防闪的主题脚本。
+func TestEntryPagesOnlyLoadSameOriginScripts(t *testing.T) {
+	opening := regexp.MustCompile(`(?is)<script([^>]*)>`)
+	source := regexp.MustCompile(`(?is)\bsrc\s*=\s*"([^"]*)"`)
+
+	for _, path := range []string{"frontend/index.html", "frontend/auth.html"} {
+		page, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("读不下 %s：%v", path, err)
+		}
+		for _, match := range opening.FindAllStringSubmatch(string(page), -1) {
+			src := source.FindStringSubmatch(match[1])
+			if src == nil {
+				t.Errorf("%s 里有内联脚本，CSP 会把它挡掉", path)
+				continue
+			}
+			if !strings.HasPrefix(src[1], "/") {
+				t.Errorf("%s 引了非同源脚本 %q，CSP 会把它挡掉", path, src[1])
+			}
+		}
+	}
+
+	theme, err := os.ReadFile("frontend/public/theme.js")
+	if err != nil {
+		t.Fatalf("读不下主题脚本：%v", err)
+	}
+	if !bytes.Contains(theme, []byte("scope-status-theme")) {
+		t.Error("主题脚本没读主题键，首屏防闪就没了")
 	}
 }
