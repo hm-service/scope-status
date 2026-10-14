@@ -271,8 +271,10 @@ data: {…快照，多一个 "reused": false…}
 - **一道门：`AUTH_TOKEN`**。除 `POST /api/auth` 外的每个 `/api/*` 请求都要
   `Authorization: Bearer <token>`。空值拒绝启动，不提供默认值——没设就等于把接口敞开。
 - **内存里只有原始 token 的摘要**：启动时读进来的 token 立刻过 Argon2id（`m=19 MiB, t=2, p=1`，盐随机，PHC 串），
-  明文那份随 `loadEnv` 返回一起不可达，`api.Options` 里只有摘要；`os.Unsetenv("AUTH_TOKEN")` 顺手清掉环境变量，
-  `ping` 这类子进程继承不到。每个请求把请求头里那份 token 用同一个盐再散一遍，`crypto/subtle` 恒定时间比较
+  明文那份随 `loadEnv` 返回一起不可达，`api.Options` 里只有摘要。三个密钥（`AUTH_TOKEN` / `SESSION_SIGNING_KEY` /
+  `READYZ_TOKEN`）读完一律 `os.Unsetenv`：进程自己的环境表里不再有它们，`ping` 这类子进程也就继承不到。
+  注意这只挡住"子进程继承"，挡不住"同 uid 进程读父进程的 `/proc/<pid>/environ`"——内核里那份原始 exec 环境块还在，
+  真要不留痕只能让密钥不进环境变量（Secret 挂成文件 + `*_FILE` 读一次）。每个请求把请求头里那份 token 用同一个盐再散一遍，`crypto/subtle` 恒定时间比较
   （一次约 30 ms、19 MiB，同并发最多 4 个哈希在算）。
   同机同用户的进程仍能从 `/proc/<pid>/environ` 读到原始 exec 环境块，真要躲开这一层就把 token 放 Secret / 一次性文件注入。
 - **认证步骤至少 1 秒**：`POST /api/auth` 无论成功失败都补足到 `1s + 0–200 ms` 的随机等待

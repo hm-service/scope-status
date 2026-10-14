@@ -190,6 +190,7 @@ func loadEnv() (envConfig, error) {
 	if readyzToken != "" && !readyzTokenPattern.MatchString(readyzToken) {
 		return envConfig{}, fmt.Errorf("READYZ_TOKEN must be 16-128 chars of [a-z0-9_], got %d chars", len(readyzToken))
 	}
+	os.Unsetenv("READYZ_TOKEN")
 	// 整个站点的门禁就是这个 token：没设就等于把 /api 全敞开，所以宁可不启动。
 	// 读完立刻散列：进程里只留 Argon2id 摘要，之后每次请求拿请求头里那份再散一遍来比。
 	// 环境变量也一并清掉，免得 ping 这类子进程把它继承下去。

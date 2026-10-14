@@ -78,23 +78,29 @@ func TestLoadEnvRequiresSessionSigningKey(t *testing.T) {
 	}
 }
 
-// 读完就把环境变量清掉：ping 之类的子进程不该继承到口令与签名密钥。
+// 读完就把环境变量清掉：ping 之类的子进程不该继承到任何一个密钥。
 func TestSecretsNotInheritedByChildren(t *testing.T) {
-	t.Setenv("AUTH_TOKEN", "s3cret-token")
-	t.Setenv("SESSION_SIGNING_KEY", testSessionKey)
+	secrets := map[string]string{
+		"AUTH_TOKEN":          "s3cret-token",
+		"SESSION_SIGNING_KEY": testSessionKey,
+		"READYZ_TOKEN":        "readyz_token_0123",
+	}
+	for name, value := range secrets {
+		t.Setenv(name, value)
+	}
 	if _, err := loadEnv(); err != nil {
 		t.Fatalf("不该报错：%v", err)
 	}
-	for _, name := range []string{"AUTH_TOKEN", "SESSION_SIGNING_KEY"} {
+	for name := range secrets {
 		if value := os.Getenv(name); value != "" {
 			t.Fatalf("%s 还在自己的环境里：%q", name, value)
 		}
 	}
-	out, err := exec.Command("sh", "-c", `printf '%s,%s' "$AUTH_TOKEN" "$SESSION_SIGNING_KEY"`).Output()
+	out, err := exec.Command("sh", "-c", `printf '%s,%s,%s' "$AUTH_TOKEN" "$SESSION_SIGNING_KEY" "$READYZ_TOKEN"`).Output()
 	if err != nil {
 		t.Fatalf("起子进程失败：%v", err)
 	}
-	if len(out) != 1 || out[0] != ',' {
+	if len(out) != 2 || out[0] != ',' || out[1] != ',' {
 		t.Fatalf("子进程继承了密钥：%q", out)
 	}
 }
