@@ -21,7 +21,7 @@ type Options struct {
 	Logger               *slog.Logger
 	TrustedProxies       []netip.Prefix
 	ReadyzToken          string
-	AuthToken            string
+	AuthTokenHash        string
 	MaxAPIConcurrency    int
 	MaxStaticConcurrency int
 }

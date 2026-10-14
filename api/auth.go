@@ -1,10 +1,10 @@
 package api
 
 import (
-	"crypto/subtle"
 	"net/http"
 	"strings"
 
+	"github.com/hm-service/scope-status/core"
 	"github.com/hm-service/scope-status/httpx"
 	"github.com/hm-service/scope-status/i18n"
 )
@@ -59,9 +59,11 @@ func (s *Server) failAuth(w http.ResponseWriter, r *http.Request, key i18n.Key) 
 	httpx.Fail(w, http.StatusUnauthorized, i18n.T(langOf(r), key))
 }
 
-// tokenMatches 恒定时间比较：比较耗时不能漏出 token 的长度与前缀。
+// tokenMatches 拿请求里的 token 再散一遍和内存里那份摘要比，恒定时间；
+// 摘要不合法（启动时就会挡住，属于不该发生的事）就当不匹配。
 func (s *Server) tokenMatches(candidate string) bool {
-	return subtle.ConstantTimeCompare([]byte(candidate), []byte(s.opts.AuthToken)) == 1
+	matched, err := core.VerifyToken(candidate, s.opts.AuthTokenHash)
+	return err == nil && matched
 }
 
 // bearerToken 取出 Authorization 头里 Bearer 后面的值；格式不对或为空都算「没带」。

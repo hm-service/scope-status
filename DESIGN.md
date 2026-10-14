@@ -10,7 +10,7 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 | `TZ`                     | `Asia/Shanghai`        | 时区；影响日志时间戳与消息文件名                         |
 | `HOST`                   | `127.0.0.1`            | 监听地址                                                 |
 | `PORT`                   | `8080`                 | 监听端口                                                 |
-| `AUTH_TOKEN`             | 无                     | **必填**，整个站点的 Bearer token；为空（或只有空白）拒绝启动 |
+| `AUTH_TOKEN`             | 无                     | **必填**，整个站点的 Bearer token；为空（或只有空白）拒绝启动。读完立刻 Argon2id 散列，进程里只留摘要 |
 | `READYZ_TOKEN`           | 空                         | 非空时 `/readyz` 必须带 `?token=`；16–128 位小写字母/数字/下划线，写错拒绝启动 |
 | `TRUSTED_PROXIES`        | `127.0.0.1/32,::1/128` | 可信反代来源，决定真实客户端 IP 怎么取                   |
 | `STREAM_INTERVAL`        | `5`                    | SSE 循环探测间隔秒数；`0` 表示不起循环（只按需探测）     |
@@ -253,8 +253,12 @@ data: {…快照，多一个 "reused": false…}
 ## 5. 安全模型
 
 - **一道门：`AUTH_TOKEN`**。除 `POST /api/auth` 外的每个 `/api/*` 请求都要
-  `Authorization: Bearer <token>`；比较走 `crypto/subtle` 恒定时间，token 只从环境变量读，盘上不落。
-  空值拒绝启动，不提供默认值——没设就等于把接口敞开。
+  `Authorization: Bearer <token>`。空值拒绝启动，不提供默认值——没设就等于把接口敞开。
+- **内存里只有摘要**：启动时读进来的 token 立刻过 Argon2id（`m=19 MiB, t=2, p=1`，盐随机，PHC 串），
+  明文那份随 `loadEnv` 返回一起不可达，`api.Options` 里只有摘要；`os.Unsetenv("AUTH_TOKEN")` 顺手清掉环境变量，
+  `ping` 这类子进程继承不到。每个请求把请求头里那份 token 用同一个盐再散一遍，`crypto/subtle` 恒定时间比较
+  （一次约 30 ms、19 MiB，同并发最多 4 个哈希在算）。
+  同机同用户的进程仍能从 `/proc/<pid>/environ` 读到原始 exec 环境块，真要躲开这一层就把 token 放 Secret / 一次性文件注入。
 - **界面是公开的**：`index.html` / `auth.html` / 静态资源不含数据，谁都拿得到；数据全在 `/api/*` 后面。
   浏览器进站先看 `localStorage` 里有没有 token，没有就去 `/auth`；任何 API 回 `401` 就清掉本地 token 并回认证页。
 - token 就存在 `localStorage` 里：页面用 Vue 的插值渲染消息，没有任何用户内容进 `innerHTML`，

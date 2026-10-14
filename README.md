@@ -11,8 +11,9 @@
 - 配置与状态都在 `DATA_DIR`：手写的 `<DATA_DIR>/source.yaml` + 消息 `<DATA_DIR>/messages`，挂一个卷就是全部。
 - 推送：只有 SSE，没有轮询；`GET /api/status` 读的是共享快照，恒定时间返回。
 - 文案：中英双语，前后端各一张表，未知键原样显示（漏配一眼可见）。
-- 鉴权只有一条：`AUTH_TOKEN` + `Authorization: Bearer`，进站先过认证页 `/auth`。
-- 依赖只有一个：`gopkg.in/yaml.v3`（`source.yaml` 是人手写的 YAML，标准库没有解析器）；其余全走标准库。
+- 鉴权只有一条：`AUTH_TOKEN` + `Authorization: Bearer`，进站先过认证页 `/auth`；token 读完就 Argon2id 散列，进程里只留摘要。
+- 依赖两个：`gopkg.in/yaml.v3`（`source.yaml` 是人手写的 YAML，标准库没有解析器）与
+  `golang.org/x/crypto`（token 用 Argon2id 单向化，内存不存明文）；其余全走标准库。
 
 ## 功能
 
@@ -147,7 +148,7 @@ Vite 那边把 `/auth` 改写成 `auth.html`（线上是后端做的这件事）
 | `DATA_DIR` | `/data` | 数据目录：配置 `<DATA_DIR>/source.yaml` 与消息 `<DATA_DIR>/messages` |
 | `TZ` | 系统默认 | 时区，影响日志时间戳与消息文件名 |
 | `HOST` / `PORT` | `127.0.0.1` / `8080` | 监听地址与端口 |
-| `AUTH_TOKEN` | 无 | **必填**，`/api/*` 的 Bearer token；为空拒绝启动 |
+| `AUTH_TOKEN` | 无 | **必填**，`/api/*` 的 Bearer token；为空拒绝启动。启动时 Argon2id 散列，内存只留摘要 |
 | `READYZ_TOKEN` | 空 | 非空时 `/readyz` 必须带 `?token=` |
 | `TRUSTED_PROXIES` | `127.0.0.1/32,::1/128` | 可信反代网段，决定真实客户端 IP 怎么取 |
 | `STREAM_INTERVAL` | `5` | SSE 循环探测间隔（秒）；`0` 表示不起循环、只在请求时探 |
@@ -224,11 +225,11 @@ just check    # vet + test + 前端 vue-tsc
 
 | 包 | 覆盖率 | 说明 |
 | --- | --- | --- |
-| `main` | 33.3% | 环境变量校验：`AUTH_TOKEN` 必填 |
-| `core` | 83.7% | 配置解析与校验、探测、消息标识 |
+| `main` | 34.6% | 环境变量校验：`AUTH_TOKEN` 必填、散列、清掉环境变量 |
+| `core` | 84.1% | 配置解析与校验、探测、消息标识、token 的 Argon2id 摘要 |
 | `store` | 72.7% | `source.yaml` 读取、消息与附件池读写 |
 | `app` | 73.2% | 探测循环、快照、广播、消息用例 |
-| `api` | 82.7% | 路由、Bearer 鉴权、SSE、消息接口、静态文件、探针 |
+| `api` | 82.8% | 路由、Bearer 鉴权、SSE、消息接口、静态文件、探针 |
 | `i18n` | 87.1% | 语言协商与文案表 |
 | `httpx` | 55.1% | 响应小工具、客户端 IP、访问日志、安全头 |
 

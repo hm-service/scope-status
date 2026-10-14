@@ -39,7 +39,7 @@ type envConfig struct {
 	Host                 string
 	Port                 int
 	ReadyzToken          string
-	AuthToken            string
+	AuthTokenHash        string
 	TrustedProxies       []netip.Prefix
 	StreamInterval       time.Duration
 	MaxAPIConcurrency    int
@@ -89,7 +89,7 @@ func run() int {
 		Logger:               logger,
 		TrustedProxies:       cfg.TrustedProxies,
 		ReadyzToken:          cfg.ReadyzToken,
-		AuthToken:            cfg.AuthToken,
+		AuthTokenHash:        cfg.AuthTokenHash,
 		MaxAPIConcurrency:    cfg.MaxAPIConcurrency,
 		MaxStaticConcurrency: cfg.MaxStaticConcurrency,
 	}).Handler()
@@ -182,10 +182,17 @@ func loadEnv() (envConfig, error) {
 	if readyzToken != "" && !readyzTokenPattern.MatchString(readyzToken) {
 		return envConfig{}, fmt.Errorf("READYZ_TOKEN must be 16-128 chars of [a-z0-9_], got %d chars", len(readyzToken))
 	}
-	// 整个站点的门禁就是这个 token：没设就等于把 /api 全敞开，所以宁可不启动
+	// 整个站点的门禁就是这个 token：没设就等于把 /api 全敞开，所以宁可不启动。
+	// 读完立刻散列：进程里只留 Argon2id 摘要，之后每次请求拿请求头里那份再散一遍来比。
+	// 环境变量也一并清掉，免得 ping 这类子进程把它继承下去。
 	authToken := strings.TrimSpace(os.Getenv("AUTH_TOKEN"))
 	if authToken == "" {
 		return envConfig{}, fmt.Errorf("AUTH_TOKEN must be set")
+	}
+	os.Unsetenv("AUTH_TOKEN")
+	authTokenHash, err := core.HashToken(authToken)
+	if err != nil {
+		return envConfig{}, fmt.Errorf("AUTH_TOKEN cannot be hashed: %w", err)
 	}
 	streamSeconds, err := envFloat("STREAM_INTERVAL", 5)
 	if err != nil {
@@ -225,7 +232,7 @@ func loadEnv() (envConfig, error) {
 		Host:                 host,
 		Port:                 port,
 		ReadyzToken:          readyzToken,
-		AuthToken:            authToken,
+		AuthTokenHash:        authTokenHash,
 		TrustedProxies:       trusted,
 		StreamInterval:       time.Duration(streamSeconds * float64(time.Second)),
 		MaxAPIConcurrency:    maxAPI,

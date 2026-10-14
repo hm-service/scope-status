@@ -16,6 +16,7 @@ import (
 
 	"github.com/hm-service/scope-status/api"
 	"github.com/hm-service/scope-status/app"
+	"github.com/hm-service/scope-status/core"
 )
 
 // DefaultSource 是一份够用的最小配置：一条内网条目（探一个关着的端口）、一个网站。
@@ -92,6 +93,11 @@ func NewWith(t *testing.T, source string, opts Options) *Env {
 	if authToken == "" {
 		authToken = DefaultAuthToken
 	}
+	// 服务端只拿摘要，测试自己留着明文发请求
+	authTokenHash, err := core.HashToken(authToken)
+	if err != nil {
+		t.Fatalf("散列测试 token 失败：%v", err)
+	}
 	static := opts.Static
 	if static == nil {
 		static = Static()
@@ -103,7 +109,7 @@ func NewWith(t *testing.T, source string, opts Options) *Env {
 		Logger:               logger,
 		TrustedProxies:       nil,
 		ReadyzToken:          opts.ReadyzToken,
-		AuthToken:            authToken,
+		AuthTokenHash:        authTokenHash,
 		MaxAPIConcurrency:    8,
 		MaxStaticConcurrency: 4,
 	}).Handler()
