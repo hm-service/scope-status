@@ -28,6 +28,10 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = "index.html"
 	}
+	// 认证页有固定入口 /auth，产物里的文件名是 auth.html
+	if name == "auth" {
+		name = "auth.html"
+	}
 	if !fs.ValidPath(name) {
 		s.staticNotFound(w, r)
 		return

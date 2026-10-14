@@ -11,8 +11,8 @@
 - 配置与状态都在 `DATA_DIR`：手写的 `<DATA_DIR>/source.yaml` + 消息 `<DATA_DIR>/messages`，挂一个卷就是全部。
 - 推送：只有 SSE，没有轮询；`GET /api/status` 读的是共享快照，恒定时间返回。
 - 文案：中英双语，前后端各一张表，未知键原样显示（漏配一眼可见）。
-- 依赖两个：`gopkg.in/yaml.v3`（`source.yaml` 是人手写的 YAML，标准库没有解析器）与
-  `golang.org/x/crypto`（口令用 Argon2id 哈希，规范要求）；其余全走标准库。
+- 鉴权只有一条：`AUTH_TOKEN` + `Authorization: Bearer`，进站先过认证页 `/auth`。
+- 依赖只有一个：`gopkg.in/yaml.v3`（`source.yaml` 是人手写的 YAML，标准库没有解析器）；其余全走标准库。
 
 ## 功能
 
@@ -21,10 +21,11 @@
 | 状态 | 顶部一张**内网拓扑图**（中继基建 + 双箭头接入，可折叠）；下面内网条目一行一个：地址、最低延迟、连通性；按 `category` 分组、可折叠；点一行展开 `properties` |
 | 服务 | 游戏服 / 站点后端：按 `protocol`（`udp` / `tcp` / `a2s`）探测；`connect_cmd` 可复制 |
 | 网站 | 链接：站点图标 + 名字可点开，显示 HTTP 状态与延迟（图标异步抓，慢站点不拖累探测） |
-| 消息 | 普通消息（所有人可见）与口令消息（服务端验口令）；支持附件；按时间戳倒序 |
+| 消息 | 文本与附件；不分类型，进站的人都能看、都能改；按时间戳倒序 |
 
-- 概况栏四个页面高度一致，切标签不抖；消息页显示「消息总数 / 待解锁 / 最近消息」。
+- 概况栏四个页面高度一致，切标签不抖；消息页显示「消息总数 / 最近消息」。
 - 浅色 / 深色主题、中英双语，都记在 `localStorage`；≤560px 走卡片式布局（顶栏收进 `⋯`）。
+- 进站先检查 token：本地没有就跳 `/auth`；401 时清掉本地 token 并回认证页重填。token 存在 `localStorage`，走 `Authorization: Bearer` 头（SSE 也一样，所以前端用 fetch 流自己分帧，不用 `EventSource`）。
 - SSE 断线自动重连；顶栏显示推送状态与「服务端每 Ns 推一次」。
 - 拓扑图完全在前端算：`kind: cloud`（`cloud_servers` 块）进「中继基建」，WG 链路按 `core` 推，其余条目用双箭头接入。
 - 拓扑图支持缩放/平移：滚轮或 `+` / `−` 缩放（也可以双击/复位回适应宽度），按住拖动平移。
@@ -39,14 +40,17 @@
 依赖：Go 1.27、Node 26、pnpm 12、[just](https://github.com/casey/just)（不用 just 也可以，见下面的等价命令）。
 
 ```bash
-just run                      # 构建前端 → 配置与数据都在 ./.data → 127.0.0.1:8080
+AUTH_TOKEN=改成你自己的口令 just run   # 构建前端 → 配置与数据都在 ./.data → 127.0.0.1:8080
 ```
+
+打开 <http://127.0.0.1:8080/> 会先落到 `/auth`，把同一个 `AUTH_TOKEN` 粘进去即可。`AUTH_TOKEN` 是必填的，
+不设就直接拒绝启动（整个 `/api` 都靠它挡着）。
 
 等价的手工流程：
 
 ```bash
 cd frontend && pnpm install && pnpm build && cd ..
-DATA_DIR=$PWD/.data go run .          # 配置默认读 .data/source.yaml
+AUTH_TOKEN=改成你自己的口令 DATA_DIR=$PWD/.data go run .   # 配置默认读 .data/source.yaml
 ```
 
 `just --list` 是全部命令：
@@ -127,12 +131,14 @@ links:
 二进制里的前端是编译进 `frontend/dist` 的；改前端要热更新就开两个终端：
 
 ```sh
-just frontend-stub && DATA_DIR=.data PORT=8080 go run .   # 终端 1：后端 API + SSE
+AUTH_TOKEN=dev-token just frontend-stub
+AUTH_TOKEN=dev-token DATA_DIR=.data PORT=8080 go run .    # 终端 1：后端 API + SSE
 cd frontend && pnpm dev                                    # 终端 2：Vite，/api 代理到 8080
 ```
 
 浏览器开 <http://127.0.0.1:5173/>：页面由 Vite 提供（改 `.vue` / `.ts` 立刻热更新），
 数据走 `/api` 代理到后端。后端端口不是 8080 就用 `BACKEND_URL=http://127.0.0.1:<port> pnpm dev`。
+Vite 那边把 `/auth` 改写成 `auth.html`（线上是后端做的这件事），所以认证页在开发时也能用。
 
 ## 环境变量
 
@@ -141,6 +147,7 @@ cd frontend && pnpm dev                                    # 终端 2：Vite，/
 | `DATA_DIR` | `/data` | 数据目录：配置 `<DATA_DIR>/source.yaml` 与消息 `<DATA_DIR>/messages` |
 | `TZ` | 系统默认 | 时区，影响日志时间戳与消息文件名 |
 | `HOST` / `PORT` | `127.0.0.1` / `8080` | 监听地址与端口 |
+| `AUTH_TOKEN` | 无 | **必填**，`/api/*` 的 Bearer token；为空拒绝启动 |
 | `READYZ_TOKEN` | 空 | 非空时 `/readyz` 必须带 `?token=` |
 | `TRUSTED_PROXIES` | `127.0.0.1/32,::1/128` | 可信反代网段，决定真实客户端 IP 怎么取 |
 | `STREAM_INTERVAL` | `5` | SSE 循环探测间隔（秒）；`0` 表示不起循环、只在请求时探 |
@@ -149,20 +156,24 @@ cd frontend && pnpm dev                                    # 终端 2：Vite，/
 | `MAX_UPLOAD_BYTES` | `1073741824` | 单个附件上限（1 GiB） |
 | `GOMEMLIMIT` | 由运行时读 | Go GC 阈值 |
 
-任何一个环境变量写错（比如 `PORT=abc`）都是启动即失败，不猜。
+任何一个环境变量写错（比如 `PORT=abc`）都是启动即失败，不猜；`AUTH_TOKEN` 没设同样不启动。
 
 ## HTTP 接口
 
 接口清单、请求 / 响应字段、SSE 帧格式都在 [`DESIGN.md`](DESIGN.md#3-接口)。常用的几个：
 
 ```bash
-curl -s localhost:8080/api/health | jq            # 运行状态与计数
-curl -s 'localhost:8080/api/status?force=1' | jq  # 立刻探一次
-curl -sN localhost:8080/api/events                # SSE：messages / snapshot / hello
-curl -sX POST localhost:8080/api/reload | jq .message
+TOKEN=改成你自己的口令
+curl -s -H "Authorization: Bearer $TOKEN" localhost:8080/api/health | jq            # 运行状态与计数
+curl -s -H "Authorization: Bearer $TOKEN" 'localhost:8080/api/status?force=1' | jq  # 立刻探一次
+curl -sN -H "Authorization: Bearer $TOKEN" localhost:8080/api/events                # SSE：messages / snapshot / hello
+curl -s -X POST -H "Authorization: Bearer $TOKEN" localhost:8080/api/reload | jq .message
 ```
 
 `/api/status` 不带参数时读的是后台循环维护的共享快照（恒定时间）；有 SSE 循环时在首帧探测完成前回 `204`，让前端等推送。服务端渲染的文案（探测详情、错误）跟随请求或 SSE 连接的 `Accept-Language`，响应头带 `Content-Language` 与 `Vary: Accept-Language`。
+
+除 `POST /api/auth`（拿 token 换 `{ok:true}`，认证页用它）外，每个 `/api/*` 都要 `Authorization: Bearer <AUTH_TOKEN>`，
+缺 / 错一律 `401` 并带 `WWW-Authenticate: Bearer`；`/`、`/auth`、静态资源、`/livez`、`/readyz` 不需要。
 
 `/api/*` 的错误体统一是 `{"detail": "…"}`（前端只读 `detail`），方法不对回 `405` 并带准的 `Allow`；所有响应带
 `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`。`/livez` 永远 200 且不记日志；
@@ -179,7 +190,6 @@ $DATA_DIR/messages/files/<sha256>                                    附件池�
 
 ```json
 {
-  "kind": "public",
   "text": "正文",
   "updatedAt": 1791821096370,
   "attachments": [{ "sha256": "<64 hex>", "name": "服务器清单.txt", "size": 103 }],
@@ -188,7 +198,7 @@ $DATA_DIR/messages/files/<sha256>                                    附件池�
 ```
 
 - **创建时间只在文件名里**，是唯一真相来源；json 里没有 `id`。
-- 口令消息多一个 `keyHash` 字段：Argon2id 的 PHC 串（`$argon2id$v=19$m=19456,t=2,p=1$salt$hash`），**盘上没有明文口令**。门禁完全在服务端：没验过口令的响应里除了 `id` 和 `createdAt` 什么都不给，附件也不暴露，下载附件同样要带口令；校验是恒定时间比较，认证步骤至少 1 秒（成功失败都一样），一次最多 4 个哈希在算。口令只活在浏览器内存里，刷新即失效。
+- 消息不分类型：盘上没有 `kind`，也没有口令字段。可见性只有一条——进站的人（也就是持有 `AUTH_TOKEN` 的浏览器）都能看、都能改、都能删。
 - 附件上传是**裸文件流**（`PUT /api/messages/files?name=...`），不拼 multipart；边写边算 sha256，写完按内容改名，池子里已有同样内容就直接丢掉刚写的临时文件。单个文件上限 1 GiB。
 - 删除是打 `isDeleted` 标志位（json 原地保留），随后扫描全部 `message*.json`，只回收**不再被任何未删除消息引用**的池内文件。孤儿附件（传了又没发）等下一次删除触发的清扫才会被收走。
 - 读到不合规的 json（缺字段、类型不对、id 对不上文件名）一律 500 报错，不修复、不跳过。
@@ -214,10 +224,11 @@ just check    # vet + test + 前端 vue-tsc
 
 | 包 | 覆盖率 | 说明 |
 | --- | --- | --- |
-| `core` | 83.8% | 配置解析与校验、探测、消息标识与口令 |
-| `store` | 73.6% | `source.yaml` 读取、消息与附件池读写 |
-| `app` | 73.8% | 探测循环、快照、广播、消息用例 |
-| `api` | 77.6% | 路由、SSE、消息接口、静态文件、探针 |
+| `main` | 33.3% | 环境变量校验：`AUTH_TOKEN` 必填 |
+| `core` | 83.7% | 配置解析与校验、探测、消息标识 |
+| `store` | 72.7% | `source.yaml` 读取、消息与附件池读写 |
+| `app` | 73.2% | 探测循环、快照、广播、消息用例 |
+| `api` | 82.7% | 路由、Bearer 鉴权、SSE、消息接口、静态文件、探针 |
 | `i18n` | 87.1% | 语言协商与文案表 |
 | `httpx` | 55.1% | 响应小工具、客户端 IP、访问日志、安全头 |
 
@@ -230,7 +241,7 @@ main.go              入口：读环境变量 → 建应用容器 → 挂路由 
 web.go               go:embed frontend/dist，把前端产物编进二进制
 api/                 HTTP 层：路由、中间件、语言协商、SSE、探针、静态文件、消息接口
 app/                 用例层：探测循环与快照、广播、消息用例、启动时的一次性工作
-core/                纯逻辑：配置解析与校验、探测、消息标识、Argon2id 口令哈希，不 import 上层
+core/                纯逻辑：配置解析与校验、探测、消息标识，不 import 上层
 store/               盘上存储：source.yaml 读取、消息与附件池读写
 httpx/               HTTP 小工具：JSON / 文本响应、客户端 IP、访问日志
 i18n/                后端文案表与 T(lang, key, args…)
@@ -251,7 +262,8 @@ podman kube play k8s.scope-status.yaml         # ConfigMap 注环境变量，PVC
 
 - 镜像分三个阶段：node 构建前端 → Go 交叉编译静态二进制 → alpine 运行时（只放那一个二进制 + curl/tzdata）。
 - `k8s.scope-status.yaml` 里容器开 `readOnlyRootFilesystem` 并 `drop: ALL`，只有 `/data` 可写；`<DATA_DIR>/source.yaml` 需要自己放进卷里（`podman cp` 或宿主目录型 PV），里面有密码，别提交进公共仓库。
-- 探针分两个：`/livez` 只看进程且不记日志；`/readyz` 查依赖（配置载入、数据目录可写）并记一条审计日志，`READYZ_TOKEN` 能挡住外部探测。
+- 探针分两个：`/livez` 只看进程且不记日志；`/readyz` 查依赖（配置载入、数据目录可写）并记一条审计日志，`READYZ_TOKEN` 能挡住外部探测。两个探针都不需要 `AUTH_TOKEN`，kubelet 不用改。
+- `AUTH_TOKEN` 在清单里是占位值，上线前换成自己生成的长口令；介意明文的话把这一条挪进 Secret，用 `envFrom.secretRef` 注进来（`READYZ_TOKEN` 同理）。
 - 反代要看 SSE：[`docs/reverse-proxy.md`](docs/reverse-proxy.md) 给了 nginx / Caddy 的要点（核心是关掉响应缓冲）。
 - 数据目录就是全部状态：`messages/` 下的消息与附件，删掉即重建。
 

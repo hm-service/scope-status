@@ -13,7 +13,6 @@ import { activeSummary, durationText, messageSummary, state } from '../store'
 
   <section class="summary" id="summary-messages" :hidden="state.tab !== 'messages'" aria-live="polite">
     <span class="sum-item"><span class="sum-label">{{ t('summary.messages.total') }}</span><b id="sum-messages-total">{{ messageSummary.total }}</b></span>
-    <span class="sum-item"><span class="sum-label">{{ t('summary.messages.locked') }}</span><b id="sum-messages-locked">{{ messageSummary.locked }}</b></span>
     <span class="sum-item"><span class="sum-label">{{ t('summary.messages.latest') }}</span><b id="sum-messages-latest" class="sum-stamp">{{ messageSummary.latest }}</b></span>
   </section>
 </template>

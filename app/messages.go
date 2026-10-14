@@ -19,54 +19,47 @@ func NewMessageService(messages *store.MessageStore, monitor *Monitor) *MessageS
 
 func (s *MessageService) Store() *store.MessageStore { return s.store }
 
-// Payload 给前端一屏消息：口令消息没解锁就只有 id / 时间，一个字都不多给。
+// Payload 给前端一屏消息：每条都给完整内容。
 func (s *MessageService) Payload() (core.MessagesPayload, error) {
 	messages, err := s.store.List()
 	if err != nil {
 		return core.MessagesPayload{}, err
 	}
-	views := make([]any, 0, len(messages))
-	locked := 0
+	views := make([]core.MessageView, 0, len(messages))
 	for index := range messages {
-		message := &messages[index]
-		if message.Kind == core.KindKey {
-			views = append(views, message.LockedView())
-			locked++
-			continue
-		}
-		views = append(views, message.View())
+		views = append(views, messages[index].View())
 	}
 	return core.MessagesPayload{
 		Messages: views,
-		Summary:  core.MessageSummary{Total: len(messages), Locked: locked},
+		Summary:  core.MessageSummary{Total: len(messages)},
 	}, nil
 }
 
-func (s *MessageService) Create(kind core.Kind, text, key string, refs []store.AttachmentRef) (*core.Message, error) {
-	message, err := s.store.Create(kind, text, key, refs, time.Now())
+func (s *MessageService) Create(text string, refs []store.AttachmentRef) (*core.Message, error) {
+	message, err := s.store.Create(text, refs, time.Now())
 	if err != nil {
 		return nil, err
 	}
 	return message, s.publish()
 }
 
-func (s *MessageService) Update(id string, text *string, refs []store.AttachmentRef, replaceAttachments bool, key string) (*core.Message, error) {
-	message, err := s.store.Update(id, text, refs, replaceAttachments, key, time.Now().UnixMilli())
+func (s *MessageService) Update(id string, text *string, refs []store.AttachmentRef, replaceAttachments bool) (*core.Message, error) {
+	message, err := s.store.Update(id, text, refs, replaceAttachments, time.Now().UnixMilli())
 	if err != nil {
 		return nil, err
 	}
 	return message, s.publish()
 }
 
-func (s *MessageService) Delete(id, key string) ([]string, error) {
-	removed, err := s.store.Delete(id, key)
+func (s *MessageService) Delete(id string) ([]string, error) {
+	removed, err := s.store.Delete(id)
 	if err != nil {
 		return nil, err
 	}
 	return removed, s.publish()
 }
 
-func (s *MessageService) Get(id, key string) (*core.Message, error) { return s.store.Get(id, key) }
+func (s *MessageService) Get(id string) (*core.Message, error) { return s.store.Get(id) }
 
 func (s *MessageService) Stats() (store.MessageStats, error) { return s.store.Stats() }
 

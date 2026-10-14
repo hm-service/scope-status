@@ -1,4 +1,5 @@
-// fetch 封装：每次请求都带 Accept-Language；错误体统一是 {"detail": "…"}。
+// fetch 封装：每次请求都带 Accept-Language 与 Bearer token；错误体统一是 {"detail": "…"}。
+import { authHeader, handleUnauthorized } from './auth'
 import { lang } from './i18n'
 import type { Attachment, DeleteResult, Message, MessageInput, MessagesFrame, ReloadResult, Snapshot } from './types'
 
@@ -15,7 +16,7 @@ export class ApiError extends Error {
 }
 
 function baseHeaders(): Record<string, string> {
-  return { 'Accept-Language': lang.value }
+  return { 'Accept-Language': lang.value, ...authHeader() }
 }
 
 function jsonHeaders(): Record<string, string> {
@@ -37,9 +38,37 @@ async function errorFrom(response: Response): Promise<ApiError> {
   return new ApiError(response.status, detail)
 }
 
+/** 所有 /api 请求的统一出口：401 说明本地 token 失效，清掉并回认证页。 */
+async function send(path: string, init: RequestInit): Promise<Response> {
+  const response = await fetch(path, init)
+  if (response.status === 401) {
+    const error = await errorFrom(response)
+    handleUnauthorized()
+    throw error
+  }
+  return response
+}
+
+/** 认证页用：拿一个 token 去问服务端认不认。通过返回 null，否则返回给用户看的文案。 */
+export async function verifyToken(token: string): Promise<string | null> {
+  let response: Response
+  try {
+    response = await fetch('/api/auth', {
+      method: 'POST',
+      headers: { 'Accept-Language': lang.value, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+      cache: 'no-store',
+    })
+  } catch (error) {
+    return errorMessage(error)
+  }
+  if (response.ok) return null
+  return (await errorFrom(response)).message
+}
+
 /** 当前共享快照；还没有快照时服务端回 204，这里给 null。 */
 export async function fetchStatus(force = false): Promise<Snapshot | null> {
-  const response = await fetch(force ? '/api/status?force=1' : '/api/status', {
+  const response = await send(force ? '/api/status?force=1' : '/api/status', {
     headers: baseHeaders(),
     cache: 'no-store',
   })
@@ -50,19 +79,19 @@ export async function fetchStatus(force = false): Promise<Snapshot | null> {
 
 /** 重载配置：成功时服务端顺带探一次并给出新快照。 */
 export async function reload(): Promise<ReloadResult> {
-  const response = await fetch('/api/reload', { method: 'POST', headers: baseHeaders(), cache: 'no-store' })
+  const response = await send('/api/reload', { method: 'POST', headers: baseHeaders(), cache: 'no-store' })
   if (!response.ok) throw await errorFrom(response)
   return (await response.json()) as ReloadResult
 }
 
 export async function listMessages(): Promise<MessagesFrame> {
-  const response = await fetch('/api/messages', { headers: baseHeaders(), cache: 'no-store' })
+  const response = await send('/api/messages', { headers: baseHeaders(), cache: 'no-store' })
   if (!response.ok) throw await errorFrom(response)
   return (await response.json()) as MessagesFrame
 }
 
 export async function createMessage(body: MessageInput): Promise<Message> {
-  const response = await fetch('/api/messages', {
+  const response = await send('/api/messages', {
     method: 'POST',
     headers: jsonHeaders(),
     body: JSON.stringify(body),
@@ -73,7 +102,7 @@ export async function createMessage(body: MessageInput): Promise<Message> {
 }
 
 export async function updateMessage(id: string, body: MessageInput): Promise<Message> {
-  const response = await fetch(`/api/messages/${id}`, {
+  const response = await send(`/api/messages/${id}`, {
     method: 'PATCH',
     headers: jsonHeaders(),
     body: JSON.stringify(body),
@@ -83,32 +112,15 @@ export async function updateMessage(id: string, body: MessageInput): Promise<Mes
   return (await response.json()) as Message
 }
 
-/** 用密钥换完整内容（页面上的「输入密钥」和自动刷新都走这里）。 */
-export async function unlockMessage(id: string, key: string): Promise<Message> {
-  const response = await fetch(`/api/messages/${id}/unlock`, {
-    method: 'POST',
-    headers: jsonHeaders(),
-    body: JSON.stringify({ key }),
-    cache: 'no-store',
-  })
-  if (!response.ok) throw await errorFrom(response)
-  return (await response.json()) as Message
-}
-
-export async function deleteMessage(id: string, key: string | null): Promise<DeleteResult> {
-  const response = await fetch(`/api/messages/${id}/delete`, {
-    method: 'POST',
-    headers: jsonHeaders(),
-    body: JSON.stringify(key ? { key } : {}),
-    cache: 'no-store',
-  })
+export async function deleteMessage(id: string): Promise<DeleteResult> {
+  const response = await send(`/api/messages/${id}/delete`, { method: 'POST', headers: baseHeaders(), cache: 'no-store' })
   if (!response.ok) throw await errorFrom(response)
   return (await response.json()) as DeleteResult
 }
 
 /** 附件上传：裸 body 直接当文件流发，不拼 multipart；文件名走 ?name=。 */
 export async function uploadFile(file: File): Promise<Attachment> {
-  const response = await fetch(`/api/messages/files?name=${encodeURIComponent(file.name)}`, {
+  const response = await send(`/api/messages/files?name=${encodeURIComponent(file.name)}`, {
     method: 'PUT',
     headers: { ...baseHeaders(), 'Content-Type': 'application/octet-stream' },
     body: file,

@@ -1,0 +1,75 @@
+package api
+
+import (
+	"crypto/subtle"
+	"net/http"
+	"strings"
+
+	"github.com/hm-service/scope-status/httpx"
+	"github.com/hm-service/scope-status/i18n"
+)
+
+type authView struct {
+	OK bool `json:"ok"`
+}
+
+// POST /api/auth：拿请求体里的 token 换一个「可以进站」的答复。
+// 这是唯一不要求 Authorization 头的 /api 接口，认证页用它验用户粘进来的 token。
+func (s *Server) handleAuth(w http.ResponseWriter, r *http.Request) {
+	raw, err := readJSONBody(r)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	token, err := bodyString(raw, "token")
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	if token == nil {
+		s.failAuth(w, r, i18n.KeyHTTPAuthRequired)
+		return
+	}
+	if !s.tokenMatches(*token) {
+		s.failAuth(w, r, i18n.KeyHTTPTokenBad)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, authView{OK: true})
+}
+
+// requireAuth 包住整个 /api/*：只认 Authorization: Bearer <AUTH_TOKEN>。
+func (s *Server) requireAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token, ok := bearerToken(r)
+		if !ok {
+			s.failAuth(w, r, i18n.KeyHTTPAuthRequired)
+			return
+		}
+		if !s.tokenMatches(token) {
+			s.failAuth(w, r, i18n.KeyHTTPTokenBad)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// failAuth 是 401 的唯一出口：带 WWW-Authenticate，文案按请求语言渲染。
+func (s *Server) failAuth(w http.ResponseWriter, r *http.Request, key i18n.Key) {
+	w.Header().Set("WWW-Authenticate", "Bearer")
+	httpx.Fail(w, http.StatusUnauthorized, i18n.T(langOf(r), key))
+}
+
+// tokenMatches 恒定时间比较：比较耗时不能漏出 token 的长度与前缀。
+func (s *Server) tokenMatches(candidate string) bool {
+	return subtle.ConstantTimeCompare([]byte(candidate), []byte(s.opts.AuthToken)) == 1
+}
+
+// bearerToken 取出 Authorization 头里 Bearer 后面的值；格式不对或为空都算「没带」。
+func bearerToken(r *http.Request) (string, bool) {
+	scheme, value, found := strings.Cut(r.Header.Get("Authorization"), " ")
+	if !found || !strings.EqualFold(scheme, "Bearer") {
+		return "", false
+	}
+	token := strings.TrimSpace(value)
+	return token, token != ""
+}

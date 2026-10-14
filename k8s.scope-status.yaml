@@ -8,6 +8,7 @@ data:
     TZ: "Asia/Shanghai"
     HOST: "0.0.0.0"
     PORT: "8080"
+    AUTH_TOKEN: "your_auth_token"
     READYZ_TOKEN: "your_readyz_token"
     TRUSTED_PROXIES: "127.0.0.1/32,::1/128,10.89.2.0/24"
     STREAM_INTERVAL: "5"

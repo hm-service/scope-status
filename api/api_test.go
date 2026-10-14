@@ -23,7 +23,14 @@ type reply struct {
 	header http.Header
 }
 
+// call 走测试实例自带的 client：每个请求都带 Authorization: Bearer。
 func call(t *testing.T, env *testenv.Env, method, path, body string, headers ...[2]string) reply {
+	t.Helper()
+	return callWith(t, env, env.Client, method, path, body, headers...)
+}
+
+// callWith 指定 client：鉴权用例用 env.RawClient 造不带 token 的请求。
+func callWith(t *testing.T, env *testenv.Env, client *http.Client, method, path, body string, headers ...[2]string) reply {
 	t.Helper()
 	request, err := http.NewRequest(method, env.BaseURL+path, strings.NewReader(body))
 	if err != nil {
@@ -35,7 +42,7 @@ func call(t *testing.T, env *testenv.Env, method, path, body string, headers ...
 	if body != "" {
 		request.Header.Set("Content-Type", "application/json")
 	}
-	response, err := env.Client.Do(request)
+	response, err := client.Do(request)
 	if err != nil {
 		t.Fatalf("%s %s 失败：%v", method, path, err)
 	}
@@ -221,9 +228,7 @@ func TestReload(t *testing.T) {
 
 type messageView struct {
 	ID          string  `json:"id"`
-	Kind        string  `json:"kind"`
 	Text        *string `json:"text"`
-	Locked      bool    `json:"locked"`
 	UpdatedAt   *int64  `json:"updatedAt"`
 	CreatedAt   int64   `json:"createdAt"`
 	Attachments []struct {
@@ -249,8 +254,7 @@ func findMessage(t *testing.T, payload messagesPayload, id string) messageView {
 type messagesPayload struct {
 	Messages []messageView `json:"messages"`
 	Summary  struct {
-		Total  int `json:"total"`
-		Locked int `json:"locked"`
+		Total int `json:"total"`
 	} `json:"summary"`
 }
 
@@ -261,39 +265,29 @@ func TestMessageLifecycle(t *testing.T) {
 	if created.status != http.StatusCreated {
 		t.Fatalf("新建状态码 = %d（%s）", created.status, created.body)
 	}
-	public := decode[messageView](t, created.body)
-	if public.Kind != "public" || public.Text == nil || *public.Text != "你好 world" || public.Locked {
-		t.Fatalf("新建的视图不对：%+v", public)
+	message := decode[messageView](t, created.body)
+	if message.Text == nil || *message.Text != "你好 world" {
+		t.Fatalf("新建的视图不对：%+v", message)
 	}
-	if public.CreatedAt == 0 || public.UpdatedAt != nil {
-		t.Fatalf("时间戳不对：%+v", public)
+	if message.CreatedAt == 0 || message.UpdatedAt != nil {
+		t.Fatalf("时间戳不对：%+v", message)
 	}
-
-	secret := call(t, env, http.MethodPost, "/api/messages", `{"kind":"key","text":"秘密","key":"s3cret"}`)
-	if secret.status != http.StatusCreated {
-		t.Fatalf("新建口令消息状态码 = %d（%s）", secret.status, secret.body)
-	}
-	key := decode[messageView](t, secret.body)
 
 	list := decode[messagesPayload](t, call(t, env, http.MethodGet, "/api/messages", "").body)
-	if list.Summary.Total != 2 || list.Summary.Locked != 1 {
+	if list.Summary.Total != 1 || len(list.Messages) != 1 {
 		t.Fatalf("列表概览不对：%+v", list.Summary)
 	}
-	locked := findMessage(t, list, key.ID)
-	if !locked.Locked || locked.Text != nil || len(locked.Attachments) != 0 {
-		t.Fatalf("锁定视图泄漏了内容：%+v", locked)
+	listed := findMessage(t, list, message.ID)
+	if listed.Text == nil || *listed.Text != "你好 world" {
+		t.Fatalf("列表里的视图不对：%+v", listed)
 	}
 
-	wrong := call(t, env, http.MethodPost, "/api/messages/"+key.ID+"/unlock", `{"key":"nope"}`)
-	if wrong.status != http.StatusForbidden || !strings.Contains(string(wrong.body), "密钥不对") {
-		t.Fatalf("口令错应该 403：%d %s", wrong.status, wrong.body)
-	}
-	unlocked := decode[messageView](t, call(t, env, http.MethodPost, "/api/messages/"+key.ID+"/unlock", `{"key":"s3cret"}`).body)
-	if unlocked.Locked || unlocked.Text == nil || *unlocked.Text != "秘密" {
-		t.Fatalf("解锁视图不对：%+v", unlocked)
+	fetched := decode[messageView](t, call(t, env, http.MethodGet, "/api/messages/"+message.ID, "").body)
+	if fetched.Text == nil || *fetched.Text != "你好 world" {
+		t.Fatalf("取单条不对：%+v", fetched)
 	}
 
-	patched := decode[messageView](t, call(t, env, http.MethodPatch, "/api/messages/"+public.ID, `{"text":"改过了"}`).body)
+	patched := decode[messageView](t, call(t, env, http.MethodPatch, "/api/messages/"+message.ID, `{"text":"改过了"}`).body)
 	if patched.Text == nil || *patched.Text != "改过了" || patched.UpdatedAt == nil {
 		t.Fatalf("编辑结果不对：%+v", patched)
 	}
@@ -302,11 +296,11 @@ func TestMessageLifecycle(t *testing.T) {
 		OK           bool     `json:"ok"`
 		ID           string   `json:"id"`
 		RemovedFiles []string `json:"removedFiles"`
-	}](t, call(t, env, http.MethodPost, "/api/messages/"+public.ID+"/delete", `{}`).body)
-	if !deleted.OK || deleted.ID != public.ID || len(deleted.RemovedFiles) != 0 {
+	}](t, call(t, env, http.MethodPost, "/api/messages/"+message.ID+"/delete", "").body)
+	if !deleted.OK || deleted.ID != message.ID || len(deleted.RemovedFiles) != 0 {
 		t.Fatalf("删除结果不对：%+v", deleted)
 	}
-	if gone := call(t, env, http.MethodGet, "/api/messages/"+public.ID, ""); gone.status != http.StatusNotFound {
+	if gone := call(t, env, http.MethodGet, "/api/messages/"+message.ID, ""); gone.status != http.StatusNotFound {
 		t.Fatalf("删掉的消息应该 404，拿到 %d", gone.status)
 	}
 }
@@ -349,7 +343,7 @@ func TestUploadAndDownload(t *testing.T) {
 
 	deleted := decode[struct {
 		RemovedFiles []string `json:"removedFiles"`
-	}](t, call(t, env, http.MethodPost, "/api/messages/"+created.ID+"/delete", `{}`).body)
+	}](t, call(t, env, http.MethodPost, "/api/messages/"+created.ID+"/delete", "").body)
 	if len(deleted.RemovedFiles) != 1 || deleted.RemovedFiles[0] != attachment.SHA256 {
 		t.Fatalf("删消息要回收没人引用的附件：%+v", deleted)
 	}

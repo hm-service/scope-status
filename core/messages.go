@@ -18,13 +18,6 @@ const (
 	MessageSuffix = ".json"
 )
 
-type Kind string
-
-const (
-	KindPublic Kind = "public"
-	KindKey    Kind = "key"
-)
-
 var (
 	messageIDRe = regexp.MustCompile(`^message-(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{4})-([a-z0-9]{6})$`)
 	sha256Re    = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -87,12 +80,10 @@ type Attachment struct {
 	Size   int64
 }
 
-// Message 是一条消息的领域形状：口令消息只有 hash，盘上不出现明文口令。
+// Message 是一条消息的领域形状：只有正文与附件，没有可见性之说。
 type Message struct {
 	ID          string
-	Kind        Kind
 	Text        string
-	KeyHash     string
 	UpdatedAt   *int64
 	IsDeleted   bool
 	Attachments []Attachment
@@ -106,32 +97,21 @@ type AttachmentView struct {
 	URL    string `json:"url"`
 }
 
-// MessageView 是解锁后的形状：正文、附件、编辑时间都一定在位。
+// MessageView 是消息对外的形状：正文、附件、编辑时间都在位。
 type MessageView struct {
 	ID          string           `json:"id"`
-	Kind        Kind             `json:"kind"`
 	CreatedAt   int64            `json:"createdAt"`
-	Locked      bool             `json:"locked"`
 	Text        string           `json:"text"`
 	UpdatedAt   *int64           `json:"updatedAt"`
 	Attachments []AttachmentView `json:"attachments"`
 }
 
-// LockedMessageView 是没验过口令的形状：除了 id 和时间，一个字都不给。
-type LockedMessageView struct {
-	ID        string `json:"id"`
-	Kind      Kind   `json:"kind"`
-	CreatedAt int64  `json:"createdAt"`
-	Locked    bool   `json:"locked"`
-}
-
 type MessageSummary struct {
-	Total  int `json:"total"`
-	Locked int `json:"locked"`
+	Total int `json:"total"`
 }
 
 type MessagesPayload struct {
-	Messages []any          `json:"messages"`
+	Messages []MessageView  `json:"messages"`
 	Summary  MessageSummary `json:"summary"`
 }
 
@@ -147,17 +127,11 @@ func (m *Message) View() MessageView {
 	}
 	return MessageView{
 		ID:          m.ID,
-		Kind:        m.Kind,
 		CreatedAt:   m.CreatedAt.UnixMilli(),
-		Locked:      false,
 		Text:        m.Text,
 		UpdatedAt:   m.UpdatedAt,
 		Attachments: attachments,
 	}
-}
-
-func (m *Message) LockedView() LockedMessageView {
-	return LockedMessageView{ID: m.ID, Kind: m.Kind, CreatedAt: m.CreatedAt.UnixMilli(), Locked: true}
 }
 
 // CleanFileName 只取最后一段并去掉控制字符，附件名不当路径用。
@@ -182,25 +156,4 @@ func CleanFileName(name string) (string, error) {
 		return "", BadRequest(i18n.KeyMessageNameInvalid)
 	}
 	return cleaned, nil
-}
-
-// Authorize 校验口令消息的 key：比的是 Argon2id hash，成功与否都至少花掉 floor。
-func Authorize(message *Message, key string, floor time.Duration) error {
-	if message.Kind != KindKey {
-		return nil
-	}
-	if !ValidKeyHash(message.KeyHash) {
-		return ServerError(i18n.KeyMessageFileKey, message.ID)
-	}
-	if key == "" {
-		return BadRequest(i18n.KeyMessageKeyRequired)
-	}
-	matched, err := VerifyKey(key, message.KeyHash, floor)
-	if err != nil {
-		return ServerError(i18n.KeyMessageFileKey, message.ID)
-	}
-	if !matched {
-		return Forbidden(i18n.KeyMessageKeyWrong)
-	}
-	return nil
 }

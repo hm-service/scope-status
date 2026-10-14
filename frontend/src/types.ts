@@ -116,9 +116,7 @@ export interface Attachment {
 
 export interface Message {
   id: string
-  kind: string
   createdAt: number
-  locked?: boolean
   text?: string | null
   updatedAt?: number | null
   attachments?: Attachment[]
@@ -128,14 +126,11 @@ export interface MessagesFrame {
   messages: Message[]
   summary?: {
     total: number
-    locked: number
   }
 }
 
 export interface MessageInput {
-  kind?: string
   text?: string
-  key?: string | null
   attachments?: { sha256: string; name: string }[]
 }
 

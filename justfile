@@ -53,7 +53,7 @@ vet: frontend-stub
 fmt:
     go fmt ./...
 
-# 本机跑起来（HOST / PORT / READYZ_TOKEN / TZ 等直接走环境变量）
+# 本机跑起来（HOST / PORT / AUTH_TOKEN / READYZ_TOKEN / TZ 等直接走环境变量；AUTH_TOKEN 必填）
 run: frontend
     DATA_DIR={{ DATA_DIR }} go run .
 

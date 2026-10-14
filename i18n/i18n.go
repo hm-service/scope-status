@@ -77,30 +77,29 @@ const (
 
 // 探测。
 const (
-	KeyProbeNoPing         Key = "probe.error.no-ping"
-	KeyProbeDNS            Key = "probe.error.dns"
-	KeyProbeMethod         Key = "probe.error.method"
-	KeyProbeProtocol       Key = "probe.error.protocol"
-	KeyDetailICMPNoReply   Key = "probe.detail.icmp-no-reply"
-	KeyDetailDNSFailed     Key = "probe.detail.dns-failed"
-	KeyDetailUnreachable   Key = "probe.detail.network-unreachable"
-	KeyDetailPingExit      Key = "probe.detail.ping-exit"
-	KeyDetailTCPTimeout    Key = "probe.detail.tcp-timeout"
-	KeyDetailTCPFailed     Key = "probe.detail.tcp-failed"
-	KeyDetailTCPRefused    Key = "probe.detail.tcp-refused"
-	KeyDetailTCPOK         Key = "probe.detail.tcp-ok"
-	KeyDetailHTTPStatus    Key = "probe.detail.http-status"
-	KeyDetailHTTPTimeout   Key = "probe.detail.http-timeout"
-	KeyDetailHTTPFailed    Key = "probe.detail.http-failed"
-	KeyDetailUDPNoReply    Key = "probe.detail.udp-no-reply"
-	KeyDetailUDPRefused    Key = "probe.detail.udp-refused"
-	KeyDetailUDPBytes      Key = "probe.detail.udp-bytes"
-	KeyDetailA2SOK         Key = "probe.detail.a2s-ok"
-	KeyDetailLinkStatus    Key = "probe.detail.link-status"
-	KeyDetailLinkMismatch  Key = "probe.detail.link-mismatch"
-	KeyDetailLinkFailed    Key = "probe.detail.link-failed"
-	KeyDetailLinkTimeout   Key = "probe.detail.link-timeout"
-	KeyDetailWaitFirstScan Key = "probe.detail.wait-first-scan"
+	KeyProbeNoPing        Key = "probe.error.no-ping"
+	KeyProbeDNS           Key = "probe.error.dns"
+	KeyProbeMethod        Key = "probe.error.method"
+	KeyProbeProtocol      Key = "probe.error.protocol"
+	KeyDetailICMPNoReply  Key = "probe.detail.icmp-no-reply"
+	KeyDetailDNSFailed    Key = "probe.detail.dns-failed"
+	KeyDetailUnreachable  Key = "probe.detail.network-unreachable"
+	KeyDetailPingExit     Key = "probe.detail.ping-exit"
+	KeyDetailTCPTimeout   Key = "probe.detail.tcp-timeout"
+	KeyDetailTCPFailed    Key = "probe.detail.tcp-failed"
+	KeyDetailTCPRefused   Key = "probe.detail.tcp-refused"
+	KeyDetailTCPOK        Key = "probe.detail.tcp-ok"
+	KeyDetailHTTPStatus   Key = "probe.detail.http-status"
+	KeyDetailHTTPTimeout  Key = "probe.detail.http-timeout"
+	KeyDetailHTTPFailed   Key = "probe.detail.http-failed"
+	KeyDetailUDPNoReply   Key = "probe.detail.udp-no-reply"
+	KeyDetailUDPRefused   Key = "probe.detail.udp-refused"
+	KeyDetailUDPBytes     Key = "probe.detail.udp-bytes"
+	KeyDetailA2SOK        Key = "probe.detail.a2s-ok"
+	KeyDetailLinkStatus   Key = "probe.detail.link-status"
+	KeyDetailLinkMismatch Key = "probe.detail.link-mismatch"
+	KeyDetailLinkFailed   Key = "probe.detail.link-failed"
+	KeyDetailLinkTimeout  Key = "probe.detail.link-timeout"
 )
 
 // 消息。
@@ -108,15 +107,10 @@ const (
 	KeyMessageBadID          Key = "messages.error.id"
 	KeyMessageNotFound       Key = "messages.error.not-found"
 	KeyMessageDeleted        Key = "messages.error.deleted"
-	KeyMessageKeyRequired    Key = "messages.error.key-required"
-	KeyMessageKeyWrong       Key = "messages.error.key-wrong"
 	KeyMessageNameMissing    Key = "messages.error.name-missing"
 	KeyMessageNameInvalid    Key = "messages.error.name-invalid"
-	KeyMessageTextNotString  Key = "messages.error.text-not-string"
-	KeyMessageKindInvalid    Key = "messages.error.kind"
 	KeyMessageEmpty          Key = "messages.error.empty"
 	KeyMessageAttsNotArray   Key = "messages.error.attachments-not-array"
-	KeyMessageAttNotObject   Key = "messages.error.attachment-not-object"
 	KeyMessageSHABad         Key = "messages.error.sha-invalid"
 	KeyMessageSHAFormat      Key = "messages.error.sha-format"
 	KeyMessageFileNotInPool  Key = "messages.error.file-not-in-pool"
@@ -129,9 +123,7 @@ const (
 	KeyMessageBodyNotObject  Key = "messages.error.body-not-object"
 	KeyMessageBrokenFile     Key = "messages.error.broken-file"
 	KeyMessageFileNotObject  Key = "messages.error.file-not-object"
-	KeyMessageFileKind       Key = "messages.error.file-kind"
 	KeyMessageFileFields     Key = "messages.error.file-fields"
-	KeyMessageFileKey        Key = "messages.error.file-key"
 	KeyMessageFileAtts       Key = "messages.error.file-attachments"
 	KeyMessageFileAttEntry   Key = "messages.error.file-attachment-entry"
 	KeyMessageFileUpdatedAt  Key = "messages.error.file-updated-at"
@@ -146,6 +138,7 @@ const (
 	KeyHTTPNotReady         Key = "http.error.not-ready"
 	KeyHTTPNotReadyCause    Key = "http.error.not-ready-cause"
 	KeyHTTPTokenBad         Key = "http.error.token-bad"
+	KeyHTTPAuthRequired     Key = "http.error.auth-required"
 	KeyHTTPInternal         Key = "http.error.internal"
 	KeyHTTPNoFlush          Key = "http.error.no-flush"
 	KeyHTTPBusy             Key = "http.error.busy"
@@ -216,43 +209,37 @@ var zh = map[Key]string{
 	KeyConfigProbeConcurrency:        "probe.concurrency 必须是整数",
 	KeyConfigProbeCount:              "probe.count 必须是整数",
 
-	KeyProbeNoPing:         "系统里没有 ping 命令，把 probe.method 改成 tcp 吧",
-	KeyProbeDNS:            "%s 解析失败",
-	KeyProbeMethod:         "不支持的探测方式：%s",
-	KeyProbeProtocol:       "不支持的协议：%s",
-	KeyDetailICMPNoReply:   "无 ICMP 应答",
-	KeyDetailDNSFailed:     "域名解析失败",
-	KeyDetailUnreachable:   "网络不可达（WireGuard 隧道未建立？）",
-	KeyDetailPingExit:      "ping 退出码 %d",
-	KeyDetailTCPTimeout:    "TCP %d 超时",
-	KeyDetailTCPFailed:     "TCP 连不上：%s",
-	KeyDetailTCPRefused:    "端口拒绝连接（%s）",
-	KeyDetailTCPOK:         "TCP 连接成功",
-	KeyDetailHTTPStatus:    "HTTP %d",
-	KeyDetailHTTPTimeout:   "HTTP 超时",
-	KeyDetailHTTPFailed:    "HTTP 失败：%s",
-	KeyDetailUDPNoReply:    "UDP 无回应",
-	KeyDetailUDPRefused:    "端口拒绝（ICMP unreachable）",
-	KeyDetailUDPBytes:      "收到 %d 字节回应",
-	KeyDetailA2SOK:         "A2S_INFO 有回应",
-	KeyDetailLinkStatus:    "HTTP %d",
-	KeyDetailLinkMismatch:  "HTTP %d（期望 %d）",
-	KeyDetailLinkFailed:    "连不上：%s",
-	KeyDetailLinkTimeout:   "请求超时",
-	KeyDetailWaitFirstScan: "等待第一轮探测",
+	KeyProbeNoPing:        "系统里没有 ping 命令，把 probe.method 改成 tcp 吧",
+	KeyProbeDNS:           "%s 解析失败",
+	KeyProbeMethod:        "不支持的探测方式：%s",
+	KeyProbeProtocol:      "不支持的协议：%s",
+	KeyDetailICMPNoReply:  "无 ICMP 应答",
+	KeyDetailDNSFailed:    "域名解析失败",
+	KeyDetailUnreachable:  "网络不可达（WireGuard 隧道未建立？）",
+	KeyDetailPingExit:     "ping 退出码 %d",
+	KeyDetailTCPTimeout:   "TCP %d 超时",
+	KeyDetailTCPFailed:    "TCP 连不上：%s",
+	KeyDetailTCPRefused:   "端口拒绝连接（%s）",
+	KeyDetailTCPOK:        "TCP 连接成功",
+	KeyDetailHTTPStatus:   "HTTP %d",
+	KeyDetailHTTPTimeout:  "HTTP 超时",
+	KeyDetailHTTPFailed:   "HTTP 失败：%s",
+	KeyDetailUDPNoReply:   "UDP 无回应",
+	KeyDetailUDPRefused:   "端口拒绝（ICMP unreachable）",
+	KeyDetailUDPBytes:     "收到 %d 字节回应",
+	KeyDetailA2SOK:        "A2S_INFO 有回应",
+	KeyDetailLinkStatus:   "HTTP %d",
+	KeyDetailLinkMismatch: "HTTP %d（期望 %d）",
+	KeyDetailLinkFailed:   "连不上：%s",
+	KeyDetailLinkTimeout:  "请求超时",
 
 	KeyMessageBadID:          "消息 id 不合法",
 	KeyMessageNotFound:       "找不到消息 %s",
 	KeyMessageDeleted:        "消息 %s 已删除",
-	KeyMessageKeyRequired:    "密钥消息必须带 key",
-	KeyMessageKeyWrong:       "密钥不对",
 	KeyMessageNameMissing:    "缺少附件名（上传时带 ?name=）",
 	KeyMessageNameInvalid:    "附件名不合法",
-	KeyMessageTextNotString:  "正文必须是字符串",
-	KeyMessageKindInvalid:    "kind 只能是 public / key",
 	KeyMessageEmpty:          "正文和附件至少要有一个",
 	KeyMessageAttsNotArray:   "attachments 必须是数组",
-	KeyMessageAttNotObject:   "附件条目必须是对象",
 	KeyMessageSHABad:         "附件 sha256 不合法：%s",
 	KeyMessageSHAFormat:      "sha256 不合法",
 	KeyMessageFileNotInPool:  "附件 %s 不在池子里，先上传",
@@ -265,9 +252,7 @@ var zh = map[Key]string{
 	KeyMessageBodyNotObject:  "请求体顶层必须是 JSON 对象",
 	KeyMessageBrokenFile:     "%s 读不出来：%s",
 	KeyMessageFileNotObject:  "%s 顶层不是对象",
-	KeyMessageFileKind:       "%s 的 kind=%s 不认识",
 	KeyMessageFileFields:     "%s 缺少 text / isDeleted",
-	KeyMessageFileKey:        "%s 是密钥消息但没有合法的 keyHash",
 	KeyMessageFileAtts:       "%s 的 attachments 不是数组",
 	KeyMessageFileAttEntry:   "%s 里有不合法的附件条目：%s",
 	KeyMessageFileUpdatedAt:  "%s 的 updatedAt 不是整数",
@@ -279,6 +264,7 @@ var zh = map[Key]string{
 	KeyHTTPNotReady:         "服务还没就绪",
 	KeyHTTPNotReadyCause:    "没有就绪：%s",
 	KeyHTTPTokenBad:         "token 不对",
+	KeyHTTPAuthRequired:     "需要 Bearer token",
 	KeyHTTPInternal:         "服务端错误：%s",
 	KeyHTTPNoFlush:          "这个连接不支持流式推送",
 	KeyHTTPBusy:             "服务繁忙，稍后再试",
@@ -346,43 +332,37 @@ var en = map[Key]string{
 	KeyConfigProbeConcurrency:        "probe.concurrency must be an integer",
 	KeyConfigProbeCount:              "probe.count must be an integer",
 
-	KeyProbeNoPing:         "no ping command on this system, switch probe.method to tcp",
-	KeyProbeDNS:            "cannot resolve %s",
-	KeyProbeMethod:         "unsupported probe method: %s",
-	KeyProbeProtocol:       "unsupported protocol: %s",
-	KeyDetailICMPNoReply:   "no ICMP reply",
-	KeyDetailDNSFailed:     "DNS lookup failed",
-	KeyDetailUnreachable:   "network unreachable (is the WireGuard tunnel up?)",
-	KeyDetailPingExit:      "ping exited with %d",
-	KeyDetailTCPTimeout:    "TCP %d timed out",
-	KeyDetailTCPFailed:     "cannot connect over TCP: %s",
-	KeyDetailTCPRefused:    "connection refused (%s)",
-	KeyDetailTCPOK:         "TCP connected",
-	KeyDetailHTTPStatus:    "HTTP %d",
-	KeyDetailHTTPTimeout:   "HTTP timed out",
-	KeyDetailHTTPFailed:    "HTTP failed: %s",
-	KeyDetailUDPNoReply:    "no UDP reply",
-	KeyDetailUDPRefused:    "port refused (ICMP unreachable)",
-	KeyDetailUDPBytes:      "got %d bytes back",
-	KeyDetailA2SOK:         "A2S_INFO answered",
-	KeyDetailLinkStatus:    "HTTP %d",
-	KeyDetailLinkMismatch:  "HTTP %d (want %d)",
-	KeyDetailLinkFailed:    "unreachable: %s",
-	KeyDetailLinkTimeout:   "request timed out",
-	KeyDetailWaitFirstScan: "waiting for the first scan",
+	KeyProbeNoPing:        "no ping command on this system, switch probe.method to tcp",
+	KeyProbeDNS:           "cannot resolve %s",
+	KeyProbeMethod:        "unsupported probe method: %s",
+	KeyProbeProtocol:      "unsupported protocol: %s",
+	KeyDetailICMPNoReply:  "no ICMP reply",
+	KeyDetailDNSFailed:    "DNS lookup failed",
+	KeyDetailUnreachable:  "network unreachable (is the WireGuard tunnel up?)",
+	KeyDetailPingExit:     "ping exited with %d",
+	KeyDetailTCPTimeout:   "TCP %d timed out",
+	KeyDetailTCPFailed:    "cannot connect over TCP: %s",
+	KeyDetailTCPRefused:   "connection refused (%s)",
+	KeyDetailTCPOK:        "TCP connected",
+	KeyDetailHTTPStatus:   "HTTP %d",
+	KeyDetailHTTPTimeout:  "HTTP timed out",
+	KeyDetailHTTPFailed:   "HTTP failed: %s",
+	KeyDetailUDPNoReply:   "no UDP reply",
+	KeyDetailUDPRefused:   "port refused (ICMP unreachable)",
+	KeyDetailUDPBytes:     "got %d bytes back",
+	KeyDetailA2SOK:        "A2S_INFO answered",
+	KeyDetailLinkStatus:   "HTTP %d",
+	KeyDetailLinkMismatch: "HTTP %d (want %d)",
+	KeyDetailLinkFailed:   "unreachable: %s",
+	KeyDetailLinkTimeout:  "request timed out",
 
 	KeyMessageBadID:          "bad message id",
 	KeyMessageNotFound:       "no such message: %s",
 	KeyMessageDeleted:        "message %s is deleted",
-	KeyMessageKeyRequired:    "a key message needs a key",
-	KeyMessageKeyWrong:       "wrong key",
 	KeyMessageNameMissing:    "missing attachment name (upload with ?name=)",
 	KeyMessageNameInvalid:    "bad attachment name",
-	KeyMessageTextNotString:  "text must be a string",
-	KeyMessageKindInvalid:    "kind must be public / key",
 	KeyMessageEmpty:          "a message needs text or an attachment",
 	KeyMessageAttsNotArray:   "attachments must be a list",
-	KeyMessageAttNotObject:   "an attachment entry must be a mapping",
 	KeyMessageSHABad:         "bad attachment sha256: %s",
 	KeyMessageSHAFormat:      "bad sha256",
 	KeyMessageFileNotInPool:  "attachment %s is not in the pool yet, upload it first",
@@ -395,9 +375,7 @@ var en = map[Key]string{
 	KeyMessageBodyNotObject:  "request body must be a JSON object",
 	KeyMessageBrokenFile:     "cannot read %s: %s",
 	KeyMessageFileNotObject:  "%s is not a JSON object",
-	KeyMessageFileKind:       "%s has unknown kind=%s",
 	KeyMessageFileFields:     "%s lacks text / isDeleted",
-	KeyMessageFileKey:        "%s is a key message without a valid keyHash",
 	KeyMessageFileAtts:       "attachments of %s is not a list",
 	KeyMessageFileAttEntry:   "%s has a bad attachment entry: %s",
 	KeyMessageFileUpdatedAt:  "updatedAt of %s is not an integer",
@@ -409,6 +387,7 @@ var en = map[Key]string{
 	KeyHTTPNotReady:         "service is not ready yet",
 	KeyHTTPNotReadyCause:    "not ready: %s",
 	KeyHTTPTokenBad:         "bad token",
+	KeyHTTPAuthRequired:     "bearer token required",
 	KeyHTTPInternal:         "server error: %s",
 	KeyHTTPNoFlush:          "this connection cannot stream",
 	KeyHTTPBusy:             "server is busy, try again later",

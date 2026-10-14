@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -22,33 +21,6 @@ func TestRegressUploadWithoutName(t *testing.T) {
 	}
 	if !strings.Contains(string(response.body), "缺少附件名") {
 		t.Fatalf("错误文案 = %q", response.body)
-	}
-}
-
-// 回归：口令消息的附件也要口令，没验过口令时连二进制都不该给。
-func TestRegressKeyMessageAttachmentIsGated(t *testing.T) {
-	env := testenv.New(t, testenv.DefaultSource)
-	uploaded := decode[struct {
-		SHA256 string `json:"sha256"`
-	}](t, call(t, env, http.MethodPut, "/api/messages/files?name=a.txt", "top secret").body)
-	created := decode[messageView](t, call(t, env, http.MethodPost, "/api/messages",
-		fmt.Sprintf(`{"kind":"key","text":"秘密","key":"s3cret","attachments":[{"sha256":"%s","name":"a.txt"}]}`, uploaded.SHA256)).body)
-
-	path := "/api/messages/files/" + uploaded.SHA256 + "?id=" + created.ID
-	if response := call(t, env, http.MethodGet, path, ""); response.status != http.StatusBadRequest {
-		t.Fatalf("没带口令应该 400，拿到 %d", response.status)
-	}
-	if response := call(t, env, http.MethodGet, path+"&key=wrong", ""); response.status != http.StatusForbidden {
-		t.Fatalf("口令不对应该 403，拿到 %d", response.status)
-	}
-	response := call(t, env, http.MethodGet, path+"&key=s3cret", "")
-	if response.status != http.StatusOK || string(response.body) != "top secret" {
-		t.Fatalf("口令对了应该给文件：%d %q", response.status, response.body)
-	}
-	// 列表里也不能出现附件名
-	list := decode[messagesPayload](t, call(t, env, http.MethodGet, "/api/messages", "").body)
-	if list.Messages[0].Locked == false || list.Messages[0].Attachments != nil {
-		t.Fatalf("锁定消息不该带附件：%+v", list.Messages[0])
 	}
 }
 
@@ -105,8 +77,8 @@ func TestRegressAmbiguousRoutes(t *testing.T) {
 		t.Fatalf("下载口缺 ?id= 应该 400，拿到 %d（%s）", download.status, download.body)
 	}
 	// 通配路由的方法兜底也要准
-	unlock := call(t, env, http.MethodGet, "/api/messages/message-2026-01-01-00-00-00-0000-abc123/unlock", "")
-	if unlock.status != http.StatusMethodNotAllowed || unlock.header.Get("Allow") != "POST" {
-		t.Fatalf("unlock 的 405 不对：%d %q", unlock.status, unlock.header.Get("Allow"))
+	remove := call(t, env, http.MethodGet, "/api/messages/message-2026-01-01-00-00-00-0000-abc123/delete", "")
+	if remove.status != http.StatusMethodNotAllowed || remove.header.Get("Allow") != "POST" {
+		t.Fatalf("delete 的 405 不对：%d %q", remove.status, remove.header.Get("Allow"))
 	}
 }

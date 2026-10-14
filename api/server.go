@@ -21,6 +21,7 @@ type Options struct {
 	Logger               *slog.Logger
 	TrustedProxies       []netip.Prefix
 	ReadyzToken          string
+	AuthToken            string
 	MaxAPIConcurrency    int
 	MaxStaticConcurrency int
 }
@@ -43,8 +44,10 @@ func (s *Server) Handler() http.Handler {
 	s.opts.App.Monitor.SetSnapshotView(SnapshotView)
 
 	mux := http.NewServeMux()
-	mux.Handle("/api/", s.serveAPI())
-	mux.Handle("/api", s.serveAPI())
+	// /api/auth 是登录口，只有它不要 token；其余 /api/* 一律先过 Bearer 鉴权。
+	mux.Handle("/api/auth", s.serveAPI())
+	mux.Handle("/api/", s.requireAuth(s.serveAPI()))
+	mux.Handle("/api", s.requireAuth(s.serveAPI()))
 	mux.Handle("/livez", s.serveProbe(s.handleLivez))
 	mux.Handle("/readyz", s.serveProbe(s.handleReadyz))
 	mux.HandleFunc("/", s.handleStatic)

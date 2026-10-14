@@ -2,15 +2,8 @@
 import { ICONS } from '../icons'
 import { t } from '../i18n'
 import { openCompose, state } from '../store'
-import type { Message } from '../types'
 import ComposeForm from './ComposeForm.vue'
-import LockedMessageCard from './LockedMessageCard.vue'
 import MessageCard from './MessageCard.vue'
-
-/** 已解锁的密钥消息用本地拿到的完整内容渲染。 */
-function payloadFor(entry: Message): Message {
-  return entry.locked ? state.unlockedPayloads.get(entry.id) ?? entry : entry
-}
 </script>
 
 <template>
@@ -24,10 +17,7 @@ function payloadFor(entry: Message): Message {
           </button>
         </header>
         <div class="msg-list" id="msg-list">
-          <template v-for="entry in state.messages" :key="entry.id">
-            <MessageCard v-if="!entry.locked || state.unlockedPayloads.has(entry.id)" :message="payloadFor(entry)" />
-            <LockedMessageCard v-else :entry="entry" />
-          </template>
+          <MessageCard v-for="entry in state.messages" :key="entry.id" :message="entry" />
         </div>
         <p class="empty" id="msg-empty" :hidden="state.messages.length > 0">{{ t('empty.messages') }}</p>
       </div>

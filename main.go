@@ -27,8 +27,6 @@ const (
 	// 优雅退出的宽限期；超过就强关，并以此退出码表明是被强制的
 	shutdownGrace      = 5 * time.Second
 	exitShutdownForced = 254
-	// 口令校验的时间下限：认证步骤不能秒回
-	authMinDuration = time.Second
 )
 
 // /readyz 的口令：够长的随机串，只允许小写字母、数字与下划线
@@ -41,6 +39,7 @@ type envConfig struct {
 	Host                 string
 	Port                 int
 	ReadyzToken          string
+	AuthToken            string
 	TrustedProxies       []netip.Prefix
 	StreamInterval       time.Duration
 	MaxAPIConcurrency    int
@@ -74,7 +73,6 @@ func run() int {
 		DataDir:        cfg.DataDir,
 		StreamInterval: cfg.StreamInterval,
 		MaxUploadBytes: cfg.MaxUploadBytes,
-		AuthFloor:      authMinDuration,
 	})
 	if err != nil {
 		startupFailed(err)
@@ -91,6 +89,7 @@ func run() int {
 		Logger:               logger,
 		TrustedProxies:       cfg.TrustedProxies,
 		ReadyzToken:          cfg.ReadyzToken,
+		AuthToken:            cfg.AuthToken,
 		MaxAPIConcurrency:    cfg.MaxAPIConcurrency,
 		MaxStaticConcurrency: cfg.MaxStaticConcurrency,
 	}).Handler()
@@ -183,6 +182,11 @@ func loadEnv() (envConfig, error) {
 	if readyzToken != "" && !readyzTokenPattern.MatchString(readyzToken) {
 		return envConfig{}, fmt.Errorf("READYZ_TOKEN must be 16-128 chars of [a-z0-9_], got %d chars", len(readyzToken))
 	}
+	// 整个站点的门禁就是这个 token：没设就等于把 /api 全敞开，所以宁可不启动
+	authToken := strings.TrimSpace(os.Getenv("AUTH_TOKEN"))
+	if authToken == "" {
+		return envConfig{}, fmt.Errorf("AUTH_TOKEN must be set")
+	}
 	streamSeconds, err := envFloat("STREAM_INTERVAL", 5)
 	if err != nil {
 		return envConfig{}, err
@@ -221,6 +225,7 @@ func loadEnv() (envConfig, error) {
 		Host:                 host,
 		Port:                 port,
 		ReadyzToken:          readyzToken,
+		AuthToken:            authToken,
 		TrustedProxies:       trusted,
 		StreamInterval:       time.Duration(streamSeconds * float64(time.Second)),
 		MaxAPIConcurrency:    maxAPI,

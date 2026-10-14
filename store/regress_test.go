@@ -1,7 +1,6 @@
 package store
 
 import (
-	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -10,13 +9,12 @@ import (
 	"time"
 
 	"github.com/hm-service/scope-status/core"
-	"github.com/hm-service/scope-status/i18n"
 )
 
 // 回归：消息 id 来自文件名，不出现在 json 里 —— 曾经把 id 当成 json 字段读取过。
 func TestRegressMessageIDSnapshotFromFileName(t *testing.T) {
 	store := newStore(t, 1024)
-	message, err := store.Create(core.KindPublic, "正文", "", nil, time.Now())
+	message, err := store.Create("正文", nil, time.Now())
 	if err != nil {
 		t.Fatalf("建消息失败：%v", err)
 	}
@@ -34,8 +32,11 @@ func TestRegressMessageIDSnapshotFromFileName(t *testing.T) {
 	if _, exists := fields["updatedAt"]; exists {
 		t.Fatal("没编辑过的消息不该落 updatedAt")
 	}
-	if _, exists := fields["key"]; exists {
-		t.Fatal("普通消息不该有 key 字段")
+	// 消息不分类型：盘上不该再有 kind / key 这类字段
+	for _, field := range []string{"kind", "key", "keyHash"} {
+		if _, exists := fields[field]; exists {
+			t.Fatalf("消息文件里不该有 %s 字段", field)
+		}
 	}
 	info, err := os.Stat(filepath.Join(store.Root(), message.ID+core.MessageSuffix))
 	if err != nil {
@@ -74,39 +75,5 @@ func TestRegressOrphanFileCollectedBySweep(t *testing.T) {
 	}
 	if len(removed) != 1 || removed[0] != orphan.SHA256 {
 		t.Fatalf("孤儿附件应该被回收：%v", removed)
-	}
-}
-
-// 回归：口令消息只存 Argon2id 哈希，盘上（包括附件池）不出现明文口令。
-func TestRegressKeyNeverLandsInPlaintext(t *testing.T) {
-	store := newStore(t, 1024)
-	message := create(t, store, core.KindKey, "秘密", "s3cret-plaintext", nil)
-	path := filepath.Join(store.Root(), message.ID+core.MessageSuffix)
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("读消息失败：%v", err)
-	}
-	if bytes.Contains(raw, []byte("s3cret-plaintext")) {
-		t.Fatal("明文口令落盘了")
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		t.Fatalf("解析失败：%v", err)
-	}
-	if _, exists := fields["key"]; exists {
-		t.Fatal("不该再有 key 字段")
-	}
-	var hash string
-	if err := json.Unmarshal(fields["keyHash"], &hash); err != nil {
-		t.Fatalf("keyHash 读不出来：%v", err)
-	}
-	if !strings.HasPrefix(hash, "$argon2id$") || !core.ValidKeyHash(hash) {
-		t.Fatalf("keyHash 不是 Argon2id 的 PHC 串：%q", hash)
-	}
-	if _, err := store.Get(message.ID, "s3cret-plaintext"); err != nil {
-		t.Fatalf("明文口令仍然应该能解锁：%v", err)
-	}
-	if key := errorKey(t, mustErr(store.Get(message.ID, "s3cret-plaintex"))); key != i18n.KeyMessageKeyWrong {
-		t.Fatalf("少了最后一个字符也该拒绝：%q", key)
 	}
 }

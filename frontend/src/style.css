@@ -529,39 +529,19 @@ main { padding-bottom: 8px; }
   background: var(--panel);
 }
 .msg-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.msg-kind { display: inline-flex; align-items: center; gap: 7px; color: var(--accent); font-size: 12.5px; font-weight: 500; }
-.msg-card.is-key .msg-kind { color: var(--muted); }
 .msg-time { display: inline-flex; align-items: baseline; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
 .msg-abs { font-variant-numeric: tabular-nums; }
 .msg-edited { color: var(--accent); }
 .msg-text { margin: 0; font-size: 14.5px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
-.msg-locked-title { margin: 0; font-size: 15px; font-weight: 600; }
-.msg-locked-note { margin: 0; color: var(--muted); font-size: 13px; }
-
-.unlock-row { display: flex; gap: 8px; }
-.unlock-row[hidden] { display: none; }
-.unlock-input {
-  flex: 1;
-  min-width: 0;
-  padding: 9px 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  background: var(--panel);
-  color: var(--text);
-  font: inherit;
-  font-size: 13.5px;
-}
-.unlock-input:focus { outline: none; border-color: var(--accent); }
 
 .msg-foot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--line);
 }
-.msg-perm { color: var(--muted); font-size: 12.5px; }
 .msg-actions { display: inline-flex; align-items: center; gap: 16px; }
 
 .link-action {
@@ -621,23 +601,6 @@ main { padding-bottom: 8px; }
 .field[hidden] { display: none; }
 .field-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .field-label { color: var(--text); font-size: 13px; }
-.field-label-strong { font-weight: 600; }
-
-.radio-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-  cursor: pointer;
-}
-.radio-card:has(input:checked) { border-color: var(--accent); }
-.radio-card input { flex: none; width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
-.radio-text { display: flex; flex-direction: column; gap: 2px; }
-.radio-title { font-size: 13.5px; }
-.radio-note { color: var(--muted); font-size: 12.5px; }
 
 #msg-text {
   width: 100%;
@@ -654,21 +617,6 @@ main { padding-bottom: 8px; }
 }
 #msg-text:focus { outline: none; border-color: var(--accent); }
 
-.input-with-action { position: relative; display: flex; align-items: center; }
-.input-with-action input {
-  width: 100%;
-  padding: 11px 40px 11px 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-  color: var(--text);
-  font: inherit;
-  font-size: 13.5px;
-}
-.input-with-action input:focus { outline: none; border-color: var(--accent); }
-.input-action { position: absolute; right: 6px; display: inline-flex; padding: 5px; border: none; background: none; color: var(--muted); cursor: pointer; }
-.input-action:hover { color: var(--text); }
-
 .msg-hint { margin: 0; color: var(--muted); font-size: 12.5px; }
 .msg-hint[hidden] { display: none; }
 .msg-hint-bad { color: var(--down); }
@@ -678,6 +626,41 @@ main { padding-bottom: 8px; }
 @media (min-width: 561px) {
   #panel-messages.is-composing .msg-layout { grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); }
 }
+
+/* ---------- 认证页 ---------- */
+
+.auth-shell { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; }
+
+.auth-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 380px;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.auth-title { margin: 0; font-size: 20px; }
+.auth-subtitle { margin: 0; color: var(--muted); font-size: 13px; }
+.auth-field { display: flex; flex-direction: column; gap: 8px; }
+
+#auth-token {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+}
+#auth-token:focus { outline: none; border-color: var(--accent); }
+
+.auth-hint { margin: 0; color: var(--muted); font-size: 12.5px; }
+.auth-error { margin: 0; color: var(--down); font-size: 13px; }
 
 /* ---------- 页脚 ---------- */
 

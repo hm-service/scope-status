@@ -17,6 +17,7 @@ type apiRoute struct {
 
 func (s *Server) routes() []apiRoute {
 	return []apiRoute{
+		{http.MethodPost, "/api/auth", s.handleAuth},
 		{http.MethodGet, "/api/status", s.handleStatus},
 		{http.MethodGet, "/api/events", s.handleEvents},
 		{http.MethodGet, "/api/reload", s.handleReload},
@@ -28,13 +29,12 @@ func (s *Server) routes() []apiRoute {
 		{http.MethodGet, "/api/messages/files/{sha256}", s.handleFileDownload},
 		{http.MethodGet, "/api/messages/{message_id}", s.handleMessageGet},
 		{http.MethodPatch, "/api/messages/{message_id}", s.handleMessageUpdate},
-		{http.MethodPost, "/api/messages/{message_id}/unlock", s.handleMessageUnlock},
 		{http.MethodPost, "/api/messages/{message_id}/delete", s.handleMessageDelete},
 	}
 }
 
 // serveAPI 自己按段匹配路由：ServeMux 的通配模式在 /api/messages/* 这种形状上互相不可比
-// （files/{sha256} 与 {message_id}/unlock 会 panic），顺带也能把 Allow 说准。
+// （files/{sha256} 与 {message_id}/delete 会 panic），顺带也能把 Allow 说准。
 // 匹配先字面量后通配：/api/messages/files 同时能对上 PUT 上传口和 {message_id}，
 // 字面量赢，否则那条路径的 Allow 会变成一锅粥。
 func (s *Server) serveAPI() http.Handler {

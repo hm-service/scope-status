@@ -14,8 +14,7 @@ import (
 
 func newStore(t *testing.T, maxUpload int64) *MessageStore {
 	t.Helper()
-	// 测试里把认证时间下限压到 1ms，别真等 1 秒
-	store := NewMessageStore(filepath.Join(t.TempDir(), "messages"), maxUpload, time.Millisecond)
+	store := NewMessageStore(filepath.Join(t.TempDir(), "messages"), maxUpload)
 	if err := store.Ensure(); err != nil {
 		t.Fatalf("建目录失败：%v", err)
 	}
@@ -31,9 +30,9 @@ func errorKey(t *testing.T, err error) i18n.Key {
 	return business.Key
 }
 
-func create(t *testing.T, store *MessageStore, kind core.Kind, text, key string, refs []AttachmentRef) *core.Message {
+func create(t *testing.T, store *MessageStore, text string, refs []AttachmentRef) *core.Message {
 	t.Helper()
-	message, err := store.Create(kind, text, key, refs, time.Now())
+	message, err := store.Create(text, refs, time.Now())
 	if err != nil {
 		t.Fatalf("建消息失败：%v", err)
 	}
@@ -42,9 +41,9 @@ func create(t *testing.T, store *MessageStore, kind core.Kind, text, key string,
 
 func TestCreateListAndOrder(t *testing.T) {
 	store := newStore(t, 1024)
-	first := create(t, store, core.KindPublic, "第一条", "", nil)
+	first := create(t, store, "第一条", nil)
 	time.Sleep(2 * time.Millisecond)
-	second := create(t, store, core.KindPublic, "第二条", "", nil)
+	second := create(t, store, "第二条", nil)
 
 	messages, err := store.List()
 	if err != nil {
@@ -61,60 +60,36 @@ func TestCreateListAndOrder(t *testing.T) {
 	}
 }
 
-func TestKeyMessageGate(t *testing.T) {
-	store := newStore(t, 1024)
-	message := create(t, store, core.KindKey, "秘密", "s3cret", nil)
-
-	if _, err := store.Get(message.ID, "s3cret"); err != nil {
-		t.Fatalf("口令对了还报错：%v", err)
-	}
-	if key := errorKey(t, mustErr(store.Get(message.ID, "nope"))); key != i18n.KeyMessageKeyWrong {
-		t.Fatalf("口令错的错误键 = %q", key)
-	}
-	if key := errorKey(t, mustErr(store.Get(message.ID, ""))); key != i18n.KeyMessageKeyRequired {
-		t.Fatalf("缺口令的错误键 = %q", key)
-	}
-	if key := errorKey(t, mustErr(store.Update(message.ID, ptr("改"), nil, false, "nope", 0))); key != i18n.KeyMessageKeyWrong {
-		t.Fatalf("改口令消息也要验口令：%q", key)
-	}
-}
-
 func TestCreateValidation(t *testing.T) {
 	store := newStore(t, 1024)
-	if key := errorKey(t, mustErr(store.Create("weird", "x", "", nil, time.Now()))); key != i18n.KeyMessageKindInvalid {
-		t.Fatalf("kind 错的错误键 = %q", key)
-	}
-	if key := errorKey(t, mustErr(store.Create(core.KindKey, "x", "", nil, time.Now()))); key != i18n.KeyMessageKeyRequired {
-		t.Fatalf("口令消息缺口令的错误键 = %q", key)
-	}
-	if key := errorKey(t, mustErr(store.Create(core.KindPublic, "   ", "", nil, time.Now()))); key != i18n.KeyMessageEmpty {
+	if key := errorKey(t, mustErr(store.Create("   ", nil, time.Now()))); key != i18n.KeyMessageEmpty {
 		t.Fatalf("空消息的错误键 = %q", key)
 	}
 	refs := []AttachmentRef{{SHA256: strings.Repeat("a", 64), Name: "a.txt"}}
-	if key := errorKey(t, mustErr(store.Create(core.KindPublic, "x", "", refs, time.Now()))); key != i18n.KeyMessageFileNotInPool {
+	if key := errorKey(t, mustErr(store.Create("x", refs, time.Now()))); key != i18n.KeyMessageFileNotInPool {
 		t.Fatalf("池子里没有的附件应该被拒：%q", key)
 	}
 }
 
 func TestUpdateAndDelete(t *testing.T) {
 	store := newStore(t, 1024)
-	message := create(t, store, core.KindPublic, "原文", "", nil)
+	message := create(t, store, "原文", nil)
 
-	updated, err := store.Update(message.ID, ptr("改过了"), nil, false, "", 1234)
+	updated, err := store.Update(message.ID, ptr("改过了"), nil, false, 1234)
 	if err != nil {
 		t.Fatalf("改失败：%v", err)
 	}
 	if updated.Text != "改过了" || updated.UpdatedAt == nil || *updated.UpdatedAt != 1234 {
 		t.Fatalf("改的结果不对：%+v", updated)
 	}
-	if key := errorKey(t, mustErr(store.Update(message.ID, ptr("  "), nil, true, "", 1234))); key != i18n.KeyMessageEmpty {
+	if key := errorKey(t, mustErr(store.Update(message.ID, ptr("  "), nil, true, 1234))); key != i18n.KeyMessageEmpty {
 		t.Fatalf("改成空消息应该被拒：%q", key)
 	}
 
-	if _, err := store.Delete(message.ID, ""); err != nil {
+	if _, err := store.Delete(message.ID); err != nil {
 		t.Fatalf("删失败：%v", err)
 	}
-	if key := errorKey(t, mustErr(store.Get(message.ID, ""))); key != i18n.KeyMessageDeleted {
+	if key := errorKey(t, mustErr(store.Get(message.ID))); key != i18n.KeyMessageDeleted {
 		t.Fatalf("删掉后应该 404：%q", key)
 	}
 	messages, err := store.List()
@@ -135,10 +110,10 @@ func TestDeleteSweepsOnlyUnreferencedFiles(t *testing.T) {
 		t.Fatalf("上传失败：%v", err)
 	}
 	refs := []AttachmentRef{{SHA256: attachment.SHA256, Name: attachment.Name}}
-	first := create(t, store, core.KindPublic, "", "", refs)
-	second := create(t, store, core.KindPublic, "", "", refs)
+	first := create(t, store, "", refs)
+	second := create(t, store, "", refs)
 
-	removed, err := store.Delete(first.ID, "")
+	removed, err := store.Delete(first.ID)
 	if err != nil {
 		t.Fatalf("删失败：%v", err)
 	}
@@ -149,7 +124,7 @@ func TestDeleteSweepsOnlyUnreferencedFiles(t *testing.T) {
 		t.Fatalf("附件不该被删掉：%v", err)
 	}
 
-	removed, err = store.Delete(second.ID, "")
+	removed, err = store.Delete(second.ID)
 	if err != nil {
 		t.Fatalf("删失败：%v", err)
 	}
@@ -210,25 +185,25 @@ func TestReadFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("上传失败：%v", err)
 	}
-	message := create(t, store, core.KindPublic, "", "", []AttachmentRef{{SHA256: attachment.SHA256, Name: "报告.txt"}})
+	message := create(t, store, "", []AttachmentRef{{SHA256: attachment.SHA256, Name: "报告.txt"}})
 
-	path, name, err := store.ReadFile(message.ID, attachment.SHA256, "")
+	path, name, err := store.ReadFile(message.ID, attachment.SHA256)
 	if err != nil {
 		t.Fatalf("下载失败：%v", err)
 	}
 	if name != "报告.txt" || filepath.Base(path) != attachment.SHA256 {
 		t.Fatalf("下载信息不对：%q / %q", path, name)
 	}
-	if key := errorKey(t, mustErr2(store.ReadFile(message.ID, "not-a-sha", ""))); key != i18n.KeyMessageSHAFormat {
+	if key := errorKey(t, mustErr2(store.ReadFile(message.ID, "not-a-sha"))); key != i18n.KeyMessageSHAFormat {
 		t.Fatalf("sha 不合法：%q", key)
 	}
-	if key := errorKey(t, mustErr2(store.ReadFile(message.ID, strings.Repeat("b", 64), ""))); key != i18n.KeyMessageNotReferenced {
+	if key := errorKey(t, mustErr2(store.ReadFile(message.ID, strings.Repeat("b", 64)))); key != i18n.KeyMessageNotReferenced {
 		t.Fatalf("没引用过的附件：%q", key)
 	}
 	if err := os.Remove(path); err != nil {
 		t.Fatalf("删附件失败：%v", err)
 	}
-	if key := errorKey(t, mustErr2(store.ReadFile(message.ID, attachment.SHA256, ""))); key != i18n.KeyMessageFileGone {
+	if key := errorKey(t, mustErr2(store.ReadFile(message.ID, attachment.SHA256))); key != i18n.KeyMessageFileGone {
 		t.Fatalf("附件没了：%q", key)
 	}
 }
@@ -241,13 +216,11 @@ func TestBrokenMessageFiles(t *testing.T) {
 	}{
 		{"不是 JSON", "{", i18n.KeyMessageBrokenFile},
 		{"顶层不是对象", "[]", i18n.KeyMessageFileNotObject},
-		{"kind 不认识", `{"kind":"weird","text":"x","isDeleted":false,"attachments":[]}`, i18n.KeyMessageFileKind},
-		{"缺 text", `{"kind":"public","isDeleted":false,"attachments":[]}`, i18n.KeyMessageFileFields},
-		{"口令消息没 keyHash", `{"kind":"key","text":"x","isDeleted":false,"attachments":[]}`, i18n.KeyMessageFileKey},
-		{"keyHash 不是 PHC", `{"kind":"key","text":"x","keyHash":"s3cret","isDeleted":false,"attachments":[]}`, i18n.KeyMessageFileKey},
-		{"attachments 不是数组", `{"kind":"public","text":"x","isDeleted":false,"attachments":null}`, i18n.KeyMessageFileAtts},
-		{"附件条目不对", `{"kind":"public","text":"x","isDeleted":false,"attachments":[{"sha256":"x"}]}`, i18n.KeyMessageFileAttEntry},
-		{"updatedAt 不是整数", `{"kind":"public","text":"x","isDeleted":false,"updatedAt":"now","attachments":[]}`, i18n.KeyMessageFileUpdatedAt},
+		{"缺 text", `{"isDeleted":false,"attachments":[]}`, i18n.KeyMessageFileFields},
+		{"缺 isDeleted", `{"text":"x","attachments":[]}`, i18n.KeyMessageFileFields},
+		{"attachments 不是数组", `{"text":"x","isDeleted":false,"attachments":null}`, i18n.KeyMessageFileAtts},
+		{"附件条目不对", `{"text":"x","isDeleted":false,"attachments":[{"sha256":"x"}]}`, i18n.KeyMessageFileAttEntry},
+		{"updatedAt 不是整数", `{"text":"x","isDeleted":false,"updatedAt":"now","attachments":[]}`, i18n.KeyMessageFileUpdatedAt},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -269,7 +242,7 @@ func TestBrokenMessageFiles(t *testing.T) {
 
 func TestPermissions(t *testing.T) {
 	store := newStore(t, 1024)
-	message := create(t, store, core.KindPublic, "x", "", nil)
+	message := create(t, store, "x", nil)
 	for _, path := range []string{store.Root(), store.FilesDir()} {
 		info, err := os.Stat(path)
 		if err != nil {

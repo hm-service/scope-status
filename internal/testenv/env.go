@@ -36,9 +36,13 @@ links:
     url: https://example.invalid/
 `
 
+// DefaultAuthToken 是测试实例默认的 Bearer token；Env.Client 会自动带上它。
+const DefaultAuthToken = "test-token-0123456789"
+
 type Options struct {
 	StreamInterval time.Duration
 	ReadyzToken    string
+	AuthToken      string
 	MaxUploadBytes int64
 	Static         fs.FS
 }
@@ -50,7 +54,9 @@ type Env struct {
 	App        *app.App
 	Server     *httptest.Server
 	BaseURL    string
+	AuthToken  string
 	Client     *http.Client
+	RawClient  *http.Client
 	Logger     *slog.Logger
 }
 
@@ -76,12 +82,15 @@ func NewWith(t *testing.T, source string, opts Options) *Env {
 	}
 	application, err := app.New(app.Config{
 		DataDir:        dataDir,
-		AuthFloor:      time.Millisecond,
 		StreamInterval: opts.StreamInterval,
 		MaxUploadBytes: maxUpload,
 	})
 	if err != nil {
 		t.Fatalf("建应用容器失败：%v", err)
+	}
+	authToken := opts.AuthToken
+	if authToken == "" {
+		authToken = DefaultAuthToken
 	}
 	static := opts.Static
 	if static == nil {
@@ -94,11 +103,13 @@ func NewWith(t *testing.T, source string, opts Options) *Env {
 		Logger:               logger,
 		TrustedProxies:       nil,
 		ReadyzToken:          opts.ReadyzToken,
+		AuthToken:            authToken,
 		MaxAPIConcurrency:    8,
 		MaxStaticConcurrency: 4,
 	}).Handler()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
+	const timeout = 10 * time.Second
 	return &Env{
 		T:          t,
 		DataDir:    dataDir,
@@ -106,15 +117,31 @@ func NewWith(t *testing.T, source string, opts Options) *Env {
 		App:        application,
 		Server:     server,
 		BaseURL:    server.URL,
-		Client:     &http.Client{Timeout: 10 * time.Second},
+		AuthToken:  authToken,
+		Client:     &http.Client{Timeout: timeout, Transport: &authTransport{token: authToken}},
+		RawClient:  &http.Client{Timeout: timeout},
 		Logger:     logger,
 	}
+}
+
+// authTransport 给每个请求补上 Authorization: Bearer；调用方自己设了就不覆盖。
+type authTransport struct {
+	token string
+}
+
+func (t *authTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	clone := request.Clone(request.Context())
+	if clone.Header.Get("Authorization") == "" {
+		clone.Header.Set("Authorization", "Bearer "+t.token)
+	}
+	return http.DefaultTransport.RoundTrip(clone)
 }
 
 // Static 是一份最小的前端产物，够静态文件用例跑。
 func Static() fs.FS {
 	return fstest.MapFS{
 		"index.html":    &fstest.MapFile{Data: []byte("<!doctype html><title>test</title>")},
+		"auth.html":     &fstest.MapFile{Data: []byte("<!doctype html><title>auth</title>")},
 		"assets/app.js": &fstest.MapFile{Data: []byte("console.log('test')")},
 	}
 }

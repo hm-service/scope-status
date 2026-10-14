@@ -84,21 +84,6 @@ func bodyString(raw map[string]json.RawMessage, name string) (*string, error) {
 	return &value, nil
 }
 
-func bodyKind(raw map[string]json.RawMessage) (core.Kind, error) {
-	value, err := bodyString(raw, "kind")
-	if err != nil {
-		return "", err
-	}
-	if value == nil {
-		return core.KindPublic, nil
-	}
-	kind := core.Kind(*value)
-	if kind != core.KindPublic && kind != core.KindKey {
-		return "", core.BadRequest(i18n.KeyMessageKindInvalid)
-	}
-	return kind, nil
-}
-
 // bodyAttachments 取附件引用；第二个返回值表示这个字段到底给没给。
 func bodyAttachments(raw map[string]json.RawMessage) ([]store.AttachmentRef, bool, error) {
 	field, ok := raw["attachments"]

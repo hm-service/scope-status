@@ -10,6 +10,7 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 | `TZ`                     | `Asia/Shanghai`        | 时区；影响日志时间戳与消息文件名                         |
 | `HOST`                   | `127.0.0.1`            | 监听地址                                                 |
 | `PORT`                   | `8080`                 | 监听端口                                                 |
+| `AUTH_TOKEN`             | 无                     | **必填**，整个站点的 Bearer token；为空（或只有空白）拒绝启动 |
 | `READYZ_TOKEN`           | 空                         | 非空时 `/readyz` 必须带 `?token=`；16–128 位小写字母/数字/下划线，写错拒绝启动 |
 | `TRUSTED_PROXIES`        | `127.0.0.1/32,::1/128` | 可信反代来源，决定真实客户端 IP 怎么取                   |
 | `STREAM_INTERVAL`        | `5`                    | SSE 循环探测间隔秒数；`0` 表示不起循环（只按需探测）     |
@@ -20,7 +21,7 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 
 - 配置与状态同目录，配置路径写死为 `<DATA_DIR>/source.yaml`：容器把配置当 ConfigMap 挂在数据目录里，
   状态挂 PVC；挂一个卷就是应用的全部。
-- 启动即失败：配置文件不存在 / 解析不通过 / 数据目录建不出来，进程直接报错退出，不做任何降级。
+- 启动即失败：`AUTH_TOKEN` 没设 / 配置文件不存在 / 解析不通过 / 数据目录建不出来，进程直接报错退出，不做任何降级。
 - 配置路径没有第二个来源，也没有环境变量能改它；改 `DATA_DIR` 就等于改配置路径，界面上与 `/api/health` 里显示的永远是当前生效的那一份。
 - Kube 部署时 `<DATA_DIR>/source.yaml` 由人手动放进卷（`podman cp` 或宿主目录型 PV），清单里不挂它。
 - 工具链版本在 `go.mod`、`Dockerfile`、CI、`frontend/package.json` 四处对齐（当前 go 1.27.2 / node 26.7.0 / pnpm 12.13.0）。
@@ -28,16 +29,19 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 ## 2. 页面
 
 四个标签页，顶栏常驻：标题、SSE 状态、语言切换、主题切换、刷新、重载配置（窄屏收进 `⋯` 菜单）。
+另有一个独立入口 `/auth`：认证页。
 
 | 标签页 | 内容                                                               |
 | ------ | ------------------------------------------------------------------ |
 | 状态   | 内网条目：一行一个，地址、延迟、连通性；按 `category` 分组，可折叠 |
 | 服务   | 游戏服 / 站点后端：按 `protocol` 探测；`connect_cmd` 可复制        |
 | 网站   | 链接：站点图标 + 名字可点开；显示 HTTP 状态                        |
-| 消息   | 文本与附件；普通消息所有人可见，口令消息需输入口令；按时间戳倒序   |
+| 消息   | 文本与附件；不分类型，进站的人都能看；按时间戳倒序                 |
 
-- 每页顶部一条概况栏（总数 / 在线 / 离线，消息页是总数 / 待解锁 / 最近消息），四个页高度一致，
+- 每页顶部一条概况栏（总数 / 在线 / 离线，消息页是总数 / 最近消息），四个页高度一致，
   切换标签不抖。
+- 进站先查 token：本地没有就 `location.replace('/auth')`；`/auth` 拿 token 换一次 `POST /api/auth`，
+  通过了存进 `localStorage` 再回首页。主站与认证页共用一套主题与语言设置。
 - 主题：默认浅色，可切深色，记在 `localStorage`；≤560px 走卡片式布局。
 - 语言：默认按 `navigator.language`（`zh*` → 简体中文，其余 → English），顶栏可切换，记在
   `localStorage`；每次 `fetch` 带 `Accept-Language`，服务端错误文案跟着一起切。
@@ -47,27 +51,32 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 除附件下载外一律 `application/json`；错误体统一是 `{"detail": "…"}`（按 `Accept-Language` 渲染好的文案），
 `/api/*` 下的 404 / 405 也是这个形状，405 带 `Allow`（`GET` 按 Go 的语义写成 `GET, HEAD`）。
 
+**鉴权**：除 `POST /api/auth` 外，所有 `/api/*` 都要 `Authorization: Bearer <AUTH_TOKEN>`。
+没带、格式不对、token 不对都是 `401` + `WWW-Authenticate: Bearer`，`detail` 按语言渲染；
+比较用恒定时间，token 只从环境变量来，盘上不落。静态资源（含 `/auth` 页）与 `/livez` `/readyz` 不受影响：
+浏览器要能先打开认证页，kubelet 要能直接探。
+
 响应头默认带 `Content-Language` + `Vary: Accept-Language`，以及 `X-Content-Type-Options: nosniff`、
 `Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`。
 
 | 方法         | 路径                                    | 说明                                                         |
 | ------------ | --------------------------------------- | ------------------------------------------------------------ |
+| `POST`       | `/api/auth`                             | 用请求体里的 `token` 换 `{ok:true}`；不对 `401`（唯一免鉴权的 /api 口） |
 | `GET`        | `/api/status`                           | 当前共享快照；还没有快照时 `204`                             |
 | `GET`        | `/api/status?force=1`                   | 强制探一次再回                                               |
 | `GET`        | `/api/events`                           | SSE：先补一帧 `messages`，再推 `snapshot` / `messages`       |
 | `POST` `GET` | `/api/reload`                           | 重读 `<DATA_DIR>/source.yaml`，成功则立刻探一次              |
 | `GET`        | `/api/health`                           | 运行状态与计数                                               |
-| `GET`        | `/api/messages`                         | 未删除消息列表（口令消息未解锁只给 `id` / `createdAt`）      |
+| `GET`        | `/api/messages`                         | 未删除消息列表（每条都是完整内容）                           |
 | `POST`       | `/api/messages`                         | 新建；`201`                                                  |
-| `GET`        | `/api/messages/{id}?key=`               | 看一条；口令消息要 `key`                                     |
-| `PATCH`      | `/api/messages/{id}`                    | 改正文 / 附件；口令消息要 `key`                              |
-| `POST`       | `/api/messages/{id}/unlock`             | 用请求体里的 `key` 解锁一条                                  |
+| `GET`        | `/api/messages/{id}`                    | 看一条                                                       |
+| `PATCH`      | `/api/messages/{id}`                    | 改正文 / 附件                                                |
 | `POST`       | `/api/messages/{id}/delete`             | 打删除标志位并回收无人引用的附件                             |
 | `PUT`        | `/api/messages/files?name=<文件名>`     | 附件上传：请求体就是裸文件流，不拼 multipart                 |
-| `GET`        | `/api/messages/files/{sha256}?id=&key=` | 下载附件；附件池共享，必须指明是哪个消息引用的它             |
+| `GET`        | `/api/messages/files/{sha256}?id=`      | 下载附件；附件池共享，必须指明是哪个消息引用的它             |
 | `GET`        | `/livez`                                | 进程活着就 `200`，不记日志                                   |
 | `GET`        | `/readyz?token=`                        | 依赖就绪（配置已载入、数据目录可写）才 `200`，记一条审计日志 |
-| `GET`        | `/` 及其余路径                          | 内嵌前端产物；未知 `/api/*` 回 `404` JSON                    |
+| `GET`        | `/`、`/auth` 及其余路径                 | 内嵌前端产物；`/auth` 映射到 `auth.html`；未知 `/api/*` 回 `404` JSON |
 
 `POST /api/reload` 成功时回 `{ok, message, peers, services, links, reloadCount, sourcePath, snapshot}`：
 `message` 是服务端按 `Accept-Language` 渲染好的一句提示，`snapshot` 就是下面那份快照（`reused: false`）。
@@ -148,7 +157,7 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 
 ```
 event: messages
-data: {"messages":[…],"summary":{"total":1,"locked":0}}
+data: {"messages":[…],"summary":{"total":1}}
 
 event: snapshot
 data: {…快照，多一个 "reused": false…}
@@ -158,6 +167,8 @@ data: {…快照，多一个 "reused": false…}
 
 - 连上先补一帧 `messages`（当前列表），再补一帧 `snapshot`（有快照时，`reused: true`）
   或 `hello`（`{"streamInterval":5}`）。
+- 前端不用 `EventSource`（它没法带 `Authorization` 头，token 只能塞 URL 里），而是用
+  `fetch` + `ReadableStream` 自己分帧：空行分帧、`field: value` 取字段、注释帧丢弃，断线 3 秒后重连。
 - 之后每轮探测完成推一帧 `snapshot`；消息有任何变更推一帧 `messages`。
 - 15 秒没事件就发一个注释帧 `: ping` 保活；队列满时丢最旧的一帧（订阅者掉队不拖累服务端）。
 - 长期没有订阅者时探测降到每分钟一次。
@@ -223,7 +234,6 @@ data: {…快照，多一个 "reused": false…}
 
   ```json
   {
-    "kind": "public",
     "text": "正文",
     "updatedAt": 1760273703085,
     "attachments": [{ "sha256": "<64 hex>", "name": "豆包.png", "size": 3872014 }],
@@ -231,9 +241,8 @@ data: {…快照，多一个 "reused": false…}
   }
   ```
 
-  口令消息多一个 `keyHash`：Argon2id 的 PHC 串（`$argon2id$v=19$m=19456,t=2,p=1$<salt>$<hash>`，
-  盐与摘要用无填充 base64）。读到不合规的文件（缺字段、类型不对、id 对不上文件名、`keyHash` 不是一个
-  能解析的 PHC 串）就是 `500`，不修复、不跳过。
+  消息不分类型，盘上没有 `kind` / 口令字段。读到不合规的文件（缺 `text` / `isDeleted`、类型不对、
+  id 对不上文件名）就是 `500`，不修复、不跳过；不认识的字段忽略。
 
 - `messages/files/<sha256>` —— 附件池，按内容寻址，同内容天然一份。上传时边写边算 sha256，
   写完按内容改名；池子里已有就丢掉刚写的临时文件。
@@ -243,12 +252,14 @@ data: {…快照，多一个 "reused": false…}
 
 ## 5. 安全模型
 
-- 口令消息的正文与附件在盘上是**明文**，门禁完全在服务端：没验过口令的响应里除了 `id` 和
-  `createdAt` 什么都不给，附件也不暴露；下载附件同样要带口令。
-- 口令本身**只存 Argon2id 哈希**（`m=19456, t=2, p=1`，PHC 串），盘上不出现明文；校验用恒定时间比较，
-  并且认证步骤至少花 1 秒（成功与失败都一样），一次最多 4 个哈希在算。
-  哈希参数写死在 `core/`，读盘时会检查参数范围，挡住"把参数改大"的坏文件。
-- 登录态不存在：口令只存活在浏览器内存里，刷新即失效。
+- **一道门：`AUTH_TOKEN`**。除 `POST /api/auth` 外的每个 `/api/*` 请求都要
+  `Authorization: Bearer <token>`；比较走 `crypto/subtle` 恒定时间，token 只从环境变量读，盘上不落。
+  空值拒绝启动，不提供默认值——没设就等于把接口敞开。
+- **界面是公开的**：`index.html` / `auth.html` / 静态资源不含数据，谁都拿得到；数据全在 `/api/*` 后面。
+  浏览器进站先看 `localStorage` 里有没有 token，没有就去 `/auth`；任何 API 回 `401` 就清掉本地 token 并回认证页。
+- token 就存在 `localStorage` 里：页面用 Vue 的插值渲染消息，没有任何用户内容进 `innerHTML`，
+  不存在把 token 读走的注入点。
+- 消息的正文与附件对所有进站的人可见、可改、可删；盘上是明文，没有第二种可见性。
 - 应用不做 TLS / 限流，交给反代；应用只做输入上限与校验（体积、字段长度、类型）。
 - 附件名只取最后一段并去掉控制字符，不当路径用。
 - 数据目录 `0700`、消息文件与附件 `0600`，启动时收紧，`/readyz` 持续断言。

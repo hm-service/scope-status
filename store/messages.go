@@ -26,7 +26,6 @@ type MessageStore struct {
 	root      string
 	files     string
 	maxUpload int64
-	authFloor time.Duration
 }
 
 type AttachmentRef struct {
@@ -42,9 +41,7 @@ type MessageStats struct {
 }
 
 type messageFile struct {
-	Kind        string           `json:"kind"`
 	Text        string           `json:"text"`
-	KeyHash     string           `json:"keyHash,omitempty"`
 	UpdatedAt   *int64           `json:"updatedAt,omitempty"`
 	Attachments []attachmentFile `json:"attachments"`
 	IsDeleted   bool             `json:"isDeleted"`
@@ -56,9 +53,8 @@ type attachmentFile struct {
 	Size   int64  `json:"size"`
 }
 
-// authFloor 是口令校验的时间下限：认证步骤不能秒回。
-func NewMessageStore(root string, maxUpload int64, authFloor time.Duration) *MessageStore {
-	return &MessageStore{root: root, files: filepath.Join(root, "files"), maxUpload: maxUpload, authFloor: authFloor}
+func NewMessageStore(root string, maxUpload int64) *MessageStore {
+	return &MessageStore{root: root, files: filepath.Join(root, "files"), maxUpload: maxUpload}
 }
 
 func (s *MessageStore) Root() string          { return s.root }
@@ -215,8 +211,8 @@ func (s *MessageStore) List() ([]core.Message, error) {
 	return messages, nil
 }
 
-// Get 看一条消息：普通消息直接给，口令消息要验 key。
-func (s *MessageStore) Get(id, key string) (*core.Message, error) {
+// Get 看一条消息：在、没被删就给。
+func (s *MessageStore) Get(id string) (*core.Message, error) {
 	message, deleted, err := s.read(id)
 	if err != nil {
 		return nil, err
@@ -224,18 +220,15 @@ func (s *MessageStore) Get(id, key string) (*core.Message, error) {
 	if deleted {
 		return nil, core.NotFound(i18n.KeyMessageDeleted, id)
 	}
-	if err := core.Authorize(message, key, s.authFloor); err != nil {
-		return nil, err
-	}
 	return message, nil
 }
 
-// ReadFile 下载附件前先确认：消息在、引用过这个 sha、口令（如果是口令消息）对得上。
-func (s *MessageStore) ReadFile(id, sha, key string) (string, string, error) {
+// ReadFile 下载附件前先确认：消息在、且引用过这个 sha。
+func (s *MessageStore) ReadFile(id, sha string) (string, string, error) {
 	if !core.ValidSHA256(sha) {
 		return "", "", core.BadRequest(i18n.KeyMessageSHAFormat)
 	}
-	message, err := s.Get(id, key)
+	message, err := s.Get(id)
 	if err != nil {
 		return "", "", err
 	}
@@ -284,22 +277,8 @@ func (s *MessageStore) Stats() (MessageStats, error) {
 	return stats, nil
 }
 
-// Create 新建一条消息，返回它的完整内容（创建者本来就知道口令）。
-func (s *MessageStore) Create(kind core.Kind, text, key string, refs []AttachmentRef, now time.Time) (*core.Message, error) {
-	if kind != core.KindPublic && kind != core.KindKey {
-		return nil, core.BadRequest(i18n.KeyMessageKindInvalid)
-	}
-	secret := ""
-	if kind == core.KindKey {
-		if strings.TrimSpace(key) == "" {
-			return nil, core.BadRequest(i18n.KeyMessageKeyRequired)
-		}
-		hashed, err := core.HashKey(key)
-		if err != nil {
-			return nil, err
-		}
-		secret = hashed
-	}
+// Create 新建一条消息，返回它的完整内容。
+func (s *MessageStore) Create(text string, refs []AttachmentRef, now time.Time) (*core.Message, error) {
 	attachments, err := s.resolveAttachments(refs)
 	if err != nil {
 		return nil, err
@@ -314,21 +293,17 @@ func (s *MessageStore) Create(kind core.Kind, text, key string, refs []Attachmen
 	if err != nil {
 		return nil, err
 	}
-	data := messageFile{Kind: string(kind), Text: text, KeyHash: secret, Attachments: attachments, IsDeleted: false}
+	data := messageFile{Text: text, Attachments: attachments, IsDeleted: false}
 	if err := s.write(id, &data); err != nil {
 		return nil, err
 	}
-	// 回给创建者时用明文口令验：盘上只有 hash
-	return s.Get(id, key)
+	return s.Get(id)
 }
 
-// Update 改正文 / 附件（类型不可改）。口令消息要带对 key。
-func (s *MessageStore) Update(id string, text *string, refs []AttachmentRef, replaceAttachments bool, key string, nowMs int64) (*core.Message, error) {
-	message, data, err := s.locate(id)
+// Update 改正文 / 附件。
+func (s *MessageStore) Update(id string, text *string, refs []AttachmentRef, replaceAttachments bool, nowMs int64) (*core.Message, error) {
+	data, err := s.locate(id)
 	if err != nil {
-		return nil, err
-	}
-	if err := core.Authorize(message, key, s.authFloor); err != nil {
 		return nil, err
 	}
 	if text != nil {
@@ -348,16 +323,13 @@ func (s *MessageStore) Update(id string, text *string, refs []AttachmentRef, rep
 	if err := s.write(id, data); err != nil {
 		return nil, err
 	}
-	return s.Get(id, key)
+	return s.Get(id)
 }
 
 // Delete 打删除标志位，然后扫描引用回收没人用的池内文件。
-func (s *MessageStore) Delete(id, key string) ([]string, error) {
-	message, data, err := s.locate(id)
+func (s *MessageStore) Delete(id string) ([]string, error) {
+	data, err := s.locate(id)
 	if err != nil {
-		return nil, err
-	}
-	if err := core.Authorize(message, key, s.authFloor); err != nil {
 		return nil, err
 	}
 	data.IsDeleted = true
@@ -499,19 +471,19 @@ func (s *MessageStore) resolveAttachments(refs []AttachmentRef) ([]attachmentFil
 }
 
 // locate 定位一条消息：id 合法、文件在、没被删除。
-func (s *MessageStore) locate(id string) (*core.Message, *messageFile, error) {
-	message, deleted, err := s.read(id)
+func (s *MessageStore) locate(id string) (*messageFile, error) {
+	_, deleted, err := s.read(id)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if deleted {
-		return nil, nil, core.NotFound(i18n.KeyMessageDeleted, id)
+		return nil, core.NotFound(i18n.KeyMessageDeleted, id)
 	}
 	data, err := s.decode(id)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return message, data, nil
+	return data, nil
 }
 
 func (s *MessageStore) read(id string) (*core.Message, bool, error) {
@@ -526,16 +498,13 @@ func (s *MessageStore) read(id string) (*core.Message, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	kind := core.Kind(data.Kind)
 	attachments := make([]core.Attachment, 0, len(data.Attachments))
 	for _, attachment := range data.Attachments {
 		attachments = append(attachments, core.Attachment(attachment))
 	}
 	return &core.Message{
 		ID:          id,
-		Kind:        kind,
 		Text:        data.Text,
-		KeyHash:     data.KeyHash,
 		UpdatedAt:   data.UpdatedAt,
 		IsDeleted:   data.IsDeleted,
 		Attachments: attachments,
@@ -562,13 +531,6 @@ func (s *MessageStore) decode(id string) (*messageFile, error) {
 		return nil, core.ServerError(i18n.KeyMessageBrokenFile, name, err.Error())
 	}
 
-	var kind string
-	if err := decodeField(raw, "kind", &kind); err != nil {
-		return nil, core.ServerError(i18n.KeyMessageFileFields, name)
-	}
-	if kind != string(core.KindPublic) && kind != string(core.KindKey) {
-		return nil, core.ServerError(i18n.KeyMessageFileKind, name, kind)
-	}
 	var text string
 	if err := decodeField(raw, "text", &text); err != nil {
 		return nil, core.ServerError(i18n.KeyMessageFileFields, name)
@@ -576,12 +538,6 @@ func (s *MessageStore) decode(id string) (*messageFile, error) {
 	var deleted bool
 	if err := decodeField(raw, "isDeleted", &deleted); err != nil {
 		return nil, core.ServerError(i18n.KeyMessageFileFields, name)
-	}
-	var keyHash string
-	if kind == string(core.KindKey) {
-		if err := decodeField(raw, "keyHash", &keyHash); err != nil || !core.ValidKeyHash(keyHash) {
-			return nil, core.ServerError(i18n.KeyMessageFileKey, name)
-		}
 	}
 	var updatedAt *int64
 	if field, ok := raw["updatedAt"]; ok && string(field) != "null" {
@@ -612,9 +568,7 @@ func (s *MessageStore) decode(id string) (*messageFile, error) {
 		attachments = append(attachments, item)
 	}
 	return &messageFile{
-		Kind:        kind,
 		Text:        text,
-		KeyHash:     keyHash,
 		UpdatedAt:   updatedAt,
 		Attachments: attachments,
 		IsDeleted:   deleted,

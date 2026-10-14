@@ -4,7 +4,7 @@ import { computed, reactive, watchEffect } from 'vue'
 import * as api from './api'
 import { ApiError, errorMessage } from './api'
 import { lang, setLang, t, type I18nKey, type Lang } from './i18n'
-import { closeStream, connectStream, streamReadyState, type StreamState } from './sse'
+import { closeStream, connectStream, streamConnected, type StreamState } from './sse'
 import type { Attachment, Peer, PeerGroup, Link, Message, MessageInput, MessagesFrame, Service, Snapshot, Summary } from './types'
 import { formatDuration } from './utils/format'
 import { formatTime, shortStamp, tickNow } from './utils/time'
@@ -34,11 +34,7 @@ interface ComposeState {
   open: boolean
   mode: 'create' | 'edit'
   target: Message | null
-  key: string | null
-  kind: string
   text: string
-  keyInput: string
-  keyVisible: boolean
   draftFiles: Attachment[]
   uploading: number
   error: string
@@ -52,8 +48,6 @@ export const state = reactive({
   topologyOpen: storedTopologyOpen(),
   snapshot: null as Snapshot | null,
   messages: [] as Message[],
-  unlockedKeys: new Map<string, string>(),
-  unlockedPayloads: new Map<string, Message>(),
   collapsed: new Set<string>(),
   expanded: new Set<string>(),
   stream: 'connecting' as StreamState,
@@ -68,11 +62,7 @@ export const state = reactive({
     open: false,
     mode: 'create',
     target: null,
-    key: null,
-    kind: 'public',
     text: '',
-    keyInput: '',
-    keyVisible: false,
     draftFiles: [],
     uploading: 0,
     error: '',
@@ -94,10 +84,8 @@ export const activeSummary = computed<Summary>(() => {
 export const durationText = computed(() => formatDuration(state.snapshot?.durationMs))
 
 export const messageSummary = computed(() => {
-  const pending = state.messages.filter((message) => message.locked && !state.unlockedPayloads.has(message.id)).length
   return {
     total: state.messages.length,
-    locked: pending,
     // 列表是按时间倒序的，第一条就是最近一条
     latest: state.messages.length ? shortStamp(state.messages[0].createdAt) : '–',
   }
@@ -299,7 +287,7 @@ export function connect(): void {
 
 /** SSE 长时间没有推送就自己重连一次。 */
 export function checkStreamHealth(): void {
-  if (streamReadyState() === EventSource.OPEN && state.lastFrameAt && Date.now() - state.lastFrameAt > STREAM_SILENCE_MS) {
+  if (streamConnected() && state.lastFrameAt && Date.now() - state.lastFrameAt > STREAM_SILENCE_MS) {
     setError(t('stream.silent'))
     closeStream()
     connect()
@@ -311,56 +299,12 @@ export function checkStreamHealth(): void {
 /** 服务端推来的消息列表（连上 SSE 先给一帧，之后每次有增删改再给）。 */
 export function applyMessages(frame: MessagesFrame): void {
   state.messages = frame && Array.isArray(frame.messages) ? frame.messages : []
-
-  const live = new Set(state.messages.map((message) => message.id))
-  for (const id of [...state.unlockedKeys.keys()]) {
-    if (!live.has(id)) {
-      state.unlockedKeys.delete(id)
-      state.unlockedPayloads.delete(id)
-    }
-  }
-  // 密钥消息在服务端永远是「已锁定」，本地已解锁的先照旧渲染，顺手用记着的密钥刷新一遍
-  for (const message of state.messages) {
-    if (message.locked && state.unlockedKeys.has(message.id)) void refreshUnlocked(message.id)
-  }
 }
 
-export async function refreshUnlocked(id: string): Promise<void> {
-  const key = state.unlockedKeys.get(id)
-  if (key === undefined) return
-  try {
-    const message = await api.unlockMessage(id, key)
-    state.unlockedPayloads.set(id, message)
-  } catch (error) {
-    // 只有「密钥不对 / 消息没了」才丢掉本地这份；网络抖动就留着，别把用户正在看的内容弄没
-    if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
-      state.unlockedKeys.delete(id)
-      state.unlockedPayloads.delete(id)
-    }
-  }
-}
-
-/** 解锁：成功返回 null，失败返回给用户看的文案。 */
-export async function unlockMessage(id: string, key: string): Promise<string | null> {
-  try {
-    const message = await api.unlockMessage(id, key)
-    state.unlockedKeys.set(id, key)
-    state.unlockedPayloads.set(id, message)
-    return null
-  } catch (error) {
-    if (error instanceof ApiError) {
-      return error.body || t('messages.locked.failedHttp', { status: error.status })
-    }
-    return t('messages.locked.failed', { message: errorMessage(error) })
-  }
-}
-
-export async function deleteMessage(id: string, key: string | null): Promise<void> {
+export async function deleteMessage(id: string): Promise<void> {
   if (!window.confirm(t('messages.delete.confirm'))) return
   try {
-    const result = await api.deleteMessage(id, key)
-    state.unlockedKeys.delete(id)
-    state.unlockedPayloads.delete(id)
+    const result = await api.deleteMessage(id)
     state.messages = state.messages.filter((message) => message.id !== id)
     showNotice(result.removedFiles?.length ? t('notice.deleteOkFiles', { count: result.removedFiles.length }) : t('notice.deleteOk'), 'ok')
   } catch (error) {
@@ -370,17 +314,13 @@ export async function deleteMessage(id: string, key: string | null): Promise<voi
 
 // ---------------------------------------------------------------- 发消息表单
 
-export function openCompose(options: { mode?: 'create' | 'edit'; message?: Message; key?: string | null } = {}): void {
+export function openCompose(options: { mode?: 'create' | 'edit'; message?: Message } = {}): void {
   const compose = state.compose
   const isEdit = options.mode === 'edit' && Boolean(options.message)
   compose.mode = isEdit ? 'edit' : 'create'
   compose.target = isEdit ? options.message! : null
-  compose.key = options.key ?? null
   compose.draftFiles = isEdit ? [...(options.message!.attachments || [])] : []
-  compose.kind = isEdit ? options.message!.kind : 'public'
   compose.text = isEdit ? options.message!.text || '' : ''
-  compose.keyInput = isEdit ? compose.key || '' : ''
-  compose.keyVisible = false
   compose.uploading = 0
   compose.error = ''
   compose.open = true
@@ -391,14 +331,10 @@ export function closeCompose(): void {
   compose.open = false
   compose.mode = 'create'
   compose.target = null
-  compose.key = null
   compose.draftFiles = []
   compose.uploading = 0
   compose.text = ''
-  compose.keyInput = ''
-  compose.keyVisible = false
   compose.error = ''
-  compose.kind = 'public'
 }
 
 export function removeDraftFile(index: number): void {
@@ -428,31 +364,15 @@ export async function submitCompose(): Promise<void> {
     return
   }
   const isEdit = compose.mode === 'edit' && Boolean(compose.target)
-  const kind = isEdit ? compose.target!.kind || 'public' : compose.kind
   const body: MessageInput = {
     text: compose.text,
     attachments: compose.draftFiles.map(({ sha256, name }) => ({ sha256, name })),
   }
-  let key: string | null = null
-  if (isEdit) {
-    key = compose.key
-    if (kind === 'key') body.key = key
-  } else {
-    body.kind = kind
-    if (kind === 'key') {
-      key = compose.keyInput
-      body.key = key
-    }
-  }
 
   state.submitting = true
   try {
-    const saved = isEdit ? await api.updateMessage(compose.target!.id, body) : await api.createMessage(body)
-    if (saved.kind === 'key' && key) {
-      // 自己刚发的密钥消息，本地直接就能看，不用再解锁一次
-      state.unlockedKeys.set(saved.id, key)
-      state.unlockedPayloads.set(saved.id, saved)
-    }
+    if (isEdit) await api.updateMessage(compose.target!.id, body)
+    else await api.createMessage(body)
     closeCompose()
     showNotice(isEdit ? t('messages.compose.saved') : t('messages.compose.sent'), 'ok')
   } catch (error) {
@@ -517,8 +437,11 @@ export function initApp(): void {
     document.title = title.value
   })
 
-  // 「刚刚 / N 分钟前」自己会变老，本地重算一次就行，不用问服务端
-  window.setInterval(tickNow, 30000)
+  // 「刚刚 / N 分钟前」自己会变老；顺手看一眼 SSE 是不是静默太久，是就重连
+  window.setInterval(() => {
+    tickNow()
+    checkStreamHealth()
+  }, 30000)
 
   document.addEventListener('click', (event) => {
     if (!state.menuOpen) return

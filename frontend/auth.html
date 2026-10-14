@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Scope Status</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <script>
+      // 在首次绘制前定好主题，避免闪一下
+      document.documentElement.dataset.theme = localStorage.getItem('scope-status-theme') || 'light';
+    </script>
+  </head>
+  <body>
+    <div id="auth"></div>
+    <script type="module" src="/src/auth-page.ts"></script>
+  </body>
+</html>
