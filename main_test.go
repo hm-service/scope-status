@@ -147,6 +147,38 @@ func TestSecretsNotInheritedByChildren(t *testing.T) {
 	}
 }
 
+// MAX_AUTH_CONCURRENCY 是 /api/auth 那道闸门：不设走默认 32，写错了拒绝启动。
+func TestLoadEnvMaxAuthConcurrency(t *testing.T) {
+	load := func(value string) (envConfig, error) {
+		t.Setenv("AUTH_TOKEN", testAuthToken)
+		t.Setenv("SESSION_SIGNING_KEY", testSessionKey)
+		t.Setenv("MAX_AUTH_CONCURRENCY", value)
+		return loadEnv()
+	}
+
+	cfg, err := load("")
+	if err != nil {
+		t.Fatalf("不设 MAX_AUTH_CONCURRENCY 该走默认值：%v", err)
+	}
+	if cfg.MaxAuthConcurrency != 32 {
+		t.Fatalf("默认值 = %d，想要 32", cfg.MaxAuthConcurrency)
+	}
+
+	cfg, err = load("7")
+	if err != nil {
+		t.Fatalf("显式值不该报错：%v", err)
+	}
+	if cfg.MaxAuthConcurrency != 7 {
+		t.Fatalf("显式值 = %d，想要 7", cfg.MaxAuthConcurrency)
+	}
+
+	for _, bad := range []string{"0", "-1", "abc"} {
+		if _, err := load(bad); err == nil {
+			t.Fatalf("MAX_AUTH_CONCURRENCY=%q 应该拒绝启动", bad)
+		}
+	}
+}
+
 // CSP 的 script-src 停在 'self'，所以入口页面里既不能有内联脚本，也不能引外部脚本：
 // 违反的话浏览器会静默挡掉，挡掉的正是防闪的主题脚本。
 func TestEntryPagesOnlyLoadSameOriginScripts(t *testing.T) {

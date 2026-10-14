@@ -164,7 +164,8 @@ Vite 那边把 `/auth` 改写成 `auth.html`（线上是后端做的这件事）
 | `READYZ_TOKEN` | 空 | 非空时 `/readyz` 必须带 `?token=`；16-128 位同字符集 |
 | `TRUSTED_PROXIES` | `127.0.0.1/32,::1/128` | 可信反代网段，决定真实客户端 IP 怎么取 |
 | `STREAM_INTERVAL` | `5` | SSE 循环探测间隔（秒）；`0` 表示不起循环、只在请求时探 |
-| `MAX_API_CONCURRENCY` | `128` | API（含 `/livez` `/readyz`）并发上限 |
+| `MAX_AUTH_CONCURRENCY` | `32` | `/api/auth` 并发闸门（登录被打满不牵连业务） |
+| `MAX_API_CONCURRENCY` | `128` | 业务 `/api/*`（不含 `/api/auth`）并发闸门 |
 | `MAX_STATIC_CONCURRENCY` | `64` | 静态文件并发上限 |
 | `MAX_UPLOAD_BYTES` | `1073741824` | 单个附件上限（1 GiB） |
 | `GOMEMLIMIT` | 由运行时读 | Go GC 阈值 |
@@ -205,7 +206,8 @@ curl -s -H "Authorization: Bearer $SESSION" localhost:8080/api/health | jq
 `/api/*` 的错误体统一是 `{"detail": "…"}`（前端只读 `detail`），方法不对回 `405` 并带准的 `Allow`；所有响应带
 `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`，以及一条尽量紧的 CSP
 （`script-src 'self'`，所以页面里没有内联脚本：防闪的主题是 `/theme.js`；图片额外放行 `https:`，因为站点图标来自被监控站点）。
-`/livez` 永远 200 且不记日志；
+`/livez` 永远 200 且不记日志；并发上限分四道各自独立的闸门（静态产物、`/api/auth`、业务 `/api/*`、`/readyz` 固定 4），
+`/livez` 不设闸——被业务流量打满时探针仍然答得上。
 `/readyz` 校验口令（不对回 `401`）与数据目录 / 数据文件权限（不对回 `503`，细节只进后端日志）。
 
 ## 消息面板

@@ -54,7 +54,10 @@ type Options struct {
 	// SessionTTL 默认 1 小时；传负值就能拿到一条签出来就已经过期的会话
 	SessionTTL     time.Duration
 	MaxUploadBytes int64
-	Static         fs.FS
+	// 闸门默认给小的值：用例要的是「满了好不好使」，不是压测吞吐
+	MaxAPIConcurrency  int
+	MaxAuthConcurrency int
+	Static             fs.FS
 }
 
 type Env struct {
@@ -132,7 +135,8 @@ func NewWith(t *testing.T, source string, opts Options) *Env {
 		AuthTokenHash:        authTokenHash,
 		SessionSigner:        sessions,
 		AuthFloor:            authFloor,
-		MaxAPIConcurrency:    8,
+		MaxAPIConcurrency:    positive(opts.MaxAPIConcurrency, 8),
+		MaxAuthConcurrency:   positive(opts.MaxAuthConcurrency, 8),
 		MaxStaticConcurrency: 4,
 	}).Handler()
 	server := httptest.NewServer(handler)
@@ -153,6 +157,14 @@ func NewWith(t *testing.T, source string, opts Options) *Env {
 		RawClient:    &http.Client{Timeout: timeout},
 		Logger:       logger,
 	}
+}
+
+// positive 是「没给就用默认」：闸门传 0 表示用例不关心。
+func positive(value, fallback int) int {
+	if value > 0 {
+		return value
+	}
+	return fallback
 }
 
 // login 拿原始 token 换一条会话 token。

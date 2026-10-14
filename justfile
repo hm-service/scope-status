@@ -101,14 +101,14 @@ clean:
     chmod -R u+w .go-mod-cache 2>/dev/null || true
     rm -rf .go-mod-cache
 
-# 提交并推送：just push "提交信息"（没有改动就只打印一行，不提交也不推）
+# 提交并推送：just push "提交信息"
 push message:
     #!/usr/bin/env bash
     set -euo pipefail
     git add -A
     if git diff --cached --quiet; then
-        echo "没有改动，跳过提交与推送"
-        exit 0
+        echo "没有改动，直接推送"
+    else
+        git commit -m "$1"
     fi
-    git commit -m "$1"
     git push

@@ -20,6 +20,10 @@ import (
 // 实际等待是下限加一段随机抖动，见 authFloorJitter。
 const DefaultAuthFloor = time.Second
 
+// readyzConcurrency 是 /readyz 的闸门：它要碰 IO，但只给内部探针用，并发预期极低，
+// 所以写死一个小值，不吃环境变量。
+const readyzConcurrency = 4
+
 type Options struct {
 	App                  *app.App
 	Static               fs.FS
@@ -30,13 +34,17 @@ type Options struct {
 	SessionSigner        *core.SessionSigner
 	AuthFloor            time.Duration
 	MaxAPIConcurrency    int
+	MaxAuthConcurrency   int
 	MaxStaticConcurrency int
 }
 
+// 四道闸门各自独立：一个端点被打满，不让别的端点跟着陪葬。
 type Server struct {
 	opts      Options
 	apiSem    chan struct{}
+	authSem   chan struct{}
 	staticSem chan struct{}
+	probeSem  chan struct{}
 }
 
 func New(opts Options) *Server {
@@ -46,7 +54,9 @@ func New(opts Options) *Server {
 	return &Server{
 		opts:      opts,
 		apiSem:    make(chan struct{}, max(1, opts.MaxAPIConcurrency)),
+		authSem:   make(chan struct{}, max(1, opts.MaxAuthConcurrency)),
 		staticSem: make(chan struct{}, max(1, opts.MaxStaticConcurrency)),
+		probeSem:  make(chan struct{}, readyzConcurrency),
 	}
 }
 
@@ -78,12 +88,14 @@ func (s *Server) accessLog(next http.Handler) http.Handler {
 	return log.Middleware(next)
 }
 
-// limit 给 API 与静态文件各自一个信号量：两边槽位独立，互不挤占。
+// limit 按路径挑闸门：四道各自独立，一个端点被打满不牵连同层。
 func (s *Server) limit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		semaphore := s.staticSem
-		if isAPI(r.URL.Path) {
-			semaphore = s.apiSem
+		semaphore := s.gate(r.URL.Path)
+		// /livez 没有闸门：它的成本只是回一句 200，而「活着就答得上」正是它的语义
+		if semaphore == nil {
+			next.ServeHTTP(w, r)
+			return
 		}
 		select {
 		case semaphore <- struct{}{}:
@@ -95,8 +107,20 @@ func (s *Server) limit(next http.Handler) http.Handler {
 	})
 }
 
-func isAPI(path string) bool {
-	return strings.HasPrefix(path, "/api/") || path == "/livez" || path == "/readyz"
+// gate 是「路径 → 闸门」的唯一映射：静态产物、/api/auth、业务 /api/*、/readyz 各一道。
+func (s *Server) gate(path string) chan struct{} {
+	switch {
+	case path == "/livez":
+		return nil
+	case path == "/readyz":
+		return s.probeSem
+	case path == "/api/auth":
+		return s.authSem
+	case path == "/api" || strings.HasPrefix(path, "/api/"):
+		return s.apiSem
+	default:
+		return s.staticSem
+	}
 }
 
 // logBusiness 日志里只给文案键与参数，渲染成哪种语言留给 HTTP 响应。

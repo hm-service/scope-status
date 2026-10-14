@@ -50,6 +50,7 @@ type envConfig struct {
 	TrustedProxies       []netip.Prefix
 	StreamInterval       time.Duration
 	MaxAPIConcurrency    int
+	MaxAuthConcurrency   int
 	MaxStaticConcurrency int
 	MaxUploadBytes       int64
 }
@@ -101,6 +102,7 @@ func run() int {
 		AuthTokenHash:        cfg.AuthTokenHash,
 		SessionSigner:        sessions,
 		MaxAPIConcurrency:    cfg.MaxAPIConcurrency,
+		MaxAuthConcurrency:   cfg.MaxAuthConcurrency,
 		MaxStaticConcurrency: cfg.MaxStaticConcurrency,
 	}).Handler()
 
@@ -232,6 +234,13 @@ func loadEnv() (envConfig, error) {
 	if maxAPI < 1 {
 		return envConfig{}, fmt.Errorf("MAX_API_CONCURRENCY must be positive, got %d", maxAPI)
 	}
+	maxAuth, err := envInt("MAX_AUTH_CONCURRENCY", 32)
+	if err != nil {
+		return envConfig{}, err
+	}
+	if maxAuth < 1 {
+		return envConfig{}, fmt.Errorf("MAX_AUTH_CONCURRENCY must be positive, got %d", maxAuth)
+	}
 	maxStatic, err := envInt("MAX_STATIC_CONCURRENCY", 64)
 	if err != nil {
 		return envConfig{}, err
@@ -261,6 +270,7 @@ func loadEnv() (envConfig, error) {
 		TrustedProxies:       trusted,
 		StreamInterval:       time.Duration(streamSeconds * float64(time.Second)),
 		MaxAPIConcurrency:    maxAPI,
+		MaxAuthConcurrency:   maxAuth,
 		MaxStaticConcurrency: maxStatic,
 		MaxUploadBytes:       int64(maxUpload),
 	}, nil

@@ -15,10 +15,15 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 | `READYZ_TOKEN`           | 空                         | 非空时 `/readyz` 必须带 `?token=`；16–128 位大小写字母/数字/下划线，写错拒绝启动 |
 | `TRUSTED_PROXIES`        | `127.0.0.1/32,::1/128` | 可信反代来源，决定真实客户端 IP 怎么取                   |
 | `STREAM_INTERVAL`        | `5`                    | SSE 循环探测间隔秒数；`0` 表示不起循环（只按需探测）     |
-| `MAX_API_CONCURRENCY`    | `128`                  | API 路由（含 `/livez` `/readyz`）并发上限                |
+| `MAX_AUTH_CONCURRENCY`   | `32`                   | `/api/auth` 并发闸门：登录被打满不牵连业务                |
+| `MAX_API_CONCURRENCY`    | `128`                  | 业务 `/api/*`（不含 `/api/auth`）并发闸门                 |
 | `MAX_STATIC_CONCURRENCY` | `64`                   | 静态文件并发上限                                         |
 | `GOMEMLIMIT`             | `128MiB`               | Go GC 阈值，由运行时自己读                               |
 | `MAX_UPLOAD_BYTES`       | `1073741824`           | 单个附件上限（1 GiB）                                    |
+
+- 并发闸门四道各自独立：静态产物 `MAX_STATIC_CONCURRENCY`、`/api/auth` `MAX_AUTH_CONCURRENCY`、
+  业务 `/api/*`（不含 `/api/auth`）`MAX_API_CONCURRENCY`、`/readyz` 固定 4；`/livez` 不设闸——
+  「活着就答得上」是它的语义，而任何闸门都可能被洪泛占满。闸门满了就排队等，客户端先放弃就回 `503`。
 
 - 配置与状态同目录，配置路径写死为 `<DATA_DIR>/source.yaml`：容器把配置当 ConfigMap 挂在数据目录里，
   状态挂 PVC；挂一个卷就是应用的全部。
