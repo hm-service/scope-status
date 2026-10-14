@@ -22,6 +22,8 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 
 - 配置与状态同目录，配置路径写死为 `<DATA_DIR>/source.yaml`：容器把配置当 ConfigMap 挂在数据目录里，
   状态挂 PVC；挂一个卷就是应用的全部。
+- 三个密钥（`AUTH_TOKEN` / `SESSION_SIGNING_KEY` / `READYZ_TOKEN`）走 `k8s.scope-status.yaml` 里的 `Secret`
+  （`envFrom.secretRef`），清单里只是占位值，部署前必须换掉；`ConfigMap` 只放非敏感项。
 - 启动即失败：`AUTH_TOKEN` / `SESSION_SIGNING_KEY` 没设或形状不合规 / 配置文件不存在 / 解析不通过 / 数据目录不存在或不可写，进程直接报错退出，不做任何降级。
 - 配置路径没有第二个来源，也没有环境变量能改它；改 `DATA_DIR` 就等于改配置路径，界面上与 `/api/health` 里显示的永远是当前生效的那一份。
 - Kube 部署时 `<DATA_DIR>/source.yaml` 由人手动放进卷（`podman cp` 或宿主目录型 PV），清单里不挂它。
