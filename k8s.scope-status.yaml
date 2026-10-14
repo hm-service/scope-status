@@ -4,19 +4,27 @@ kind: ConfigMap
 metadata:
     name: env
 data:
-    DATA_DIR: "/data"
-    TZ: "Asia/Shanghai"
     HOST: "0.0.0.0"
     PORT: "8080"
-    AUTH_TOKEN: "your_auth_token"
-    SESSION_SIGNING_KEY: "your_session_signing_key"
-    READYZ_TOKEN: "your_readyz_token"
+    TZ: "Asia/Shanghai"
+    DATA_DIR: "/data"
     TRUSTED_PROXIES: "127.0.0.1/32,::1/128,10.89.2.0/24"
     STREAM_INTERVAL: "5"
     MAX_API_CONCURRENCY: 128
     MAX_STATIC_CONCURRENCY: 64
     MAX_UPLOAD_BYTES: "1073741824"
     GOMEMLIMIT: "128MiB"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+    name: secrets
+type: Opaque
+stringData:
+    AUTH_TOKEN: "your_auth_token_123"
+    READYZ_TOKEN: "your_readyz_token"
+    SESSION_SIGNING_KEY: "your_very_safe_session_signing_key"
 
 ---
 apiVersion: v1
@@ -56,6 +64,8 @@ spec:
           envFrom:
               - configMapRef:
                     name: env
+              - secretRef:
+                    name: secrets
           ports:
               - name: http
                 containerPort: 8080

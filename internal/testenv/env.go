@@ -41,8 +41,8 @@ links:
 
 // DefaultAuthToken 是测试实例默认的登录口令；Env.Client 用的是登录换来的会话。
 const (
-	DefaultAuthToken  = "test-token-0123456789"
-	DefaultSessionKey = "test-session-signing-key-0123456789"
+	DefaultAuthToken  = "test_token_0123456789"
+	DefaultSessionKey = "test_session_signing_key_0123456789"
 )
 
 type Options struct {

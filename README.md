@@ -11,7 +11,7 @@
 - 配置与状态都在 `DATA_DIR`：手写的 `<DATA_DIR>/source.yaml` + 消息 `<DATA_DIR>/messages`，挂一个卷就是全部。
 - 推送：只有 SSE，没有轮询；`GET /api/status` 读的是共享快照，恒定时间返回。
 - 文案：中英双语，前后端各一张表，未知键原样显示（漏配一眼可见）。
-- 鉴权只有一条：原始 `AUTH_TOKEN` 只在认证页用一次，换回一条**无状态签名会话**（`….<HMAC>`，7 天有效期）；
+- 鉴权只有一条：原始 `AUTH_TOKEN` 只在认证页用一次，换回一条**无状态签名会话**（`….<HMAC>`，30 天有效期）；
   之后每个请求带的是会话，服务端不存会话，验签就是重算一遍 MAC。
   原始 token 读完就 Argon2id 散列（进程里只留摘要），会话签名密钥从 `SESSION_SIGNING_KEY` 来。
 - 依赖两个：`gopkg.in/yaml.v3`（`source.yaml` 是人手写的 YAML，标准库没有解析器）与
@@ -43,24 +43,24 @@
 依赖：Go 1.27、Node 26、pnpm 12、[just](https://github.com/casey/just)（不用 just 也可以，见下面的等价命令）。
 
 ```bash
-AUTH_TOKEN=改成你自己的口令 just run   # 构建前端 → 配置与数据都在 ./.data → 127.0.0.1:8080
+export AUTH_TOKEN=scope_status_token_0123456789     # 登录口令，16-128 位 [A-Za-z0-9_]
+export SESSION_SIGNING_KEY=$(openssl rand -hex 32)  # 会话签名密钥，32-128 位
+just run                                            # 构建前端 → 数据在 ./.data → 127.0.0.1:8080
 ```
 
-打开 <http://127.0.0.1:8080/> 会先落到 `/auth`，把同一个 `AUTH_TOKEN` 粘进去即可。`AUTH_TOKEN` 是必填的，
-不设就直接拒绝启动（整个 `/api` 都靠它挡着）。启动还需要 `SESSION_SIGNING_KEY`（会话签名密钥，至少 16 字符）：
+打开 <http://127.0.0.1:8080/> 会先落到 `/auth`，把同一个 `AUTH_TOKEN` 粘进去即可。`AUTH_TOKEN` 与
+`SESSION_SIGNING_KEY` 都是必填的，不设或形状不合规都直接拒绝启动（整个 `/api` 都靠前者挡着）；
+这两个密钥加 `READYZ_TOKEN` 的字符集都只留大小写字母、数字与下划线。
 
-```bash
-AUTH_TOKEN=你的口令 SESSION_SIGNING_KEY=$(openssl rand -hex 32) just run
-```
-
-登录这一步至少花 1 秒，换回一条 7 天有效的签名会话；服务端重启不影响已登录的浏览器，
+登录这一步至少花 1 秒，换回一条 30 天有效的签名会话；服务端重启不影响已登录的浏览器，
 换 `SESSION_SIGNING_KEY` 才会把所有人踢下线。
 
 等价的手工流程：
 
 ```bash
 cd frontend && pnpm install && pnpm build && cd ..
-AUTH_TOKEN=改成你自己的口令 DATA_DIR=$PWD/.data go run .   # 配置默认读 .data/source.yaml
+mkdir -p .data                                      # DATA_DIR 必须已经存在，服务不会替你建
+AUTH_TOKEN=scope_status_token_0123456789 SESSION_SIGNING_KEY=$(openssl rand -hex 32) DATA_DIR=$PWD/.data go run .
 ```
 
 `just --list` 是全部命令：
@@ -141,9 +141,11 @@ links:
 二进制里的前端是编译进 `frontend/dist` 的；改前端要热更新就开两个终端：
 
 ```sh
-AUTH_TOKEN=dev-token just frontend-stub
-AUTH_TOKEN=dev-token DATA_DIR=.data PORT=8080 go run .    # 终端 1：后端 API + SSE
-cd frontend && pnpm dev                                    # 终端 2：Vite，/api 代理到 8080
+just frontend-stub                                          # 造占位 frontend/dist 给 go:embed 用
+mkdir -p .data
+AUTH_TOKEN=scope_status_token_0123456789 SESSION_SIGNING_KEY=$(openssl rand -hex 32) \
+    DATA_DIR=.data PORT=8080 go run .                       # 终端 1：后端 API + SSE
+cd frontend && pnpm dev                                     # 终端 2：Vite，/api 代理到 8080
 ```
 
 浏览器开 <http://127.0.0.1:5173/>：页面由 Vite 提供（改 `.vue` / `.ts` 立刻热更新），
@@ -154,12 +156,12 @@ Vite 那边把 `/auth` 改写成 `auth.html`（线上是后端做的这件事）
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `DATA_DIR` | `/data` | 数据目录：配置 `<DATA_DIR>/source.yaml` 与消息 `<DATA_DIR>/messages` |
+| `DATA_DIR` | `/data` | 数据目录：配置 `<DATA_DIR>/source.yaml` 与消息 `<DATA_DIR>/messages`；必须已经存在且可读写 |
 | `TZ` | 系统默认 | 时区，影响日志时间戳与消息文件名 |
 | `HOST` / `PORT` | `127.0.0.1` / `8080` | 监听地址与端口 |
-| `AUTH_TOKEN` | 无 | **必填**，登录用的原始口令；为空拒绝启动。启动时 Argon2id 散列，内存只留摘要 |
-| `SESSION_SIGNING_KEY` | 无 | **必填**，会话 token 的 HMAC 密钥，至少 16 字符；换它 = 所有会话立刻失效 |
-| `READYZ_TOKEN` | 空 | 非空时 `/readyz` 必须带 `?token=` |
+| `AUTH_TOKEN` | 无 | **必填**，登录用的原始口令；16-128 位大小写字母 / 数字 / 下划线，为空或形状不对拒绝启动。启动时 Argon2id 散列，内存只留摘要 |
+| `SESSION_SIGNING_KEY` | 无 | **必填**，会话 token 的 HMAC 密钥，32-128 位同字符集；换它 = 所有会话立刻失效 |
+| `READYZ_TOKEN` | 空 | 非空时 `/readyz` 必须带 `?token=`；16-128 位同字符集 |
 | `TRUSTED_PROXIES` | `127.0.0.1/32,::1/128` | 可信反代网段，决定真实客户端 IP 怎么取 |
 | `STREAM_INTERVAL` | `5` | SSE 循环探测间隔（秒）；`0` 表示不起循环、只在请求时探 |
 | `MAX_API_CONCURRENCY` | `128` | API（含 `/livez` `/readyz`）并发上限 |
@@ -167,14 +169,14 @@ Vite 那边把 `/auth` 改写成 `auth.html`（线上是后端做的这件事）
 | `MAX_UPLOAD_BYTES` | `1073741824` | 单个附件上限（1 GiB） |
 | `GOMEMLIMIT` | 由运行时读 | Go GC 阈值 |
 
-任何一个环境变量写错（比如 `PORT=abc`）都是启动即失败，不猜；`AUTH_TOKEN` 没设同样不启动。
+任何一个环境变量写错（比如 `PORT=abc`、`AUTH_TOKEN` 只有 10 位）都是启动即失败，不猜；`AUTH_TOKEN` 没设同样不启动。
 
 ## HTTP 接口
 
 接口清单、请求 / 响应字段、SSE 帧格式都在 [`DESIGN.md`](DESIGN.md#3-接口)。常用的几个：
 
 ```bash
-AUTH_TOKEN=改成你自己的口令
+AUTH_TOKEN=scope_status_token_0123456789
 SESSION=$(curl -s -X POST -d "{\"token\":\"$AUTH_TOKEN\"}" localhost:8080/api/auth | jq -r .token)  # 登录，换会话
 curl -s -H "Authorization: Bearer $SESSION" localhost:8080/api/health | jq            # 运行状态与计数
 curl -s -H "Authorization: Bearer $SESSION" 'localhost:8080/api/status?force=1' | jq  # 立刻探一次
@@ -198,7 +200,7 @@ curl -s -H "Authorization: Bearer $SESSION" localhost:8080/api/health | jq
 会话是**无状态签名 token**：`<base64url(exp|nonce)>.<base64url(HMAC-SHA256(key,"v1|" + 前面那段))>`，
 服务端不存任何东西，验签就是拿收到的原文重算一遍 MAC 再看 `exp`，所以后续请求的校验快且无状态；
 密钥走 `SESSION_SIGNING_KEY`，多副本共用同一把就能互相认会话。原始 token 不能当会话用。
-有效期 7 天（`sessionTTL`，在 `main.go`）；换 `SESSION_SIGNING_KEY` 等于全员登出，只换 `AUTH_TOKEN` 不会踢掉已有会话。
+有效期 30 天（`sessionTTL`，在 `main.go`）；换 `SESSION_SIGNING_KEY` 等于全员登出，只换 `AUTH_TOKEN` 不会踢掉已有会话。
 
 `/api/*` 的错误体统一是 `{"detail": "…"}`（前端只读 `detail`），方法不对回 `405` 并带准的 `Allow`；所有响应带
 `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`。`/livez` 永远 200 且不记日志；

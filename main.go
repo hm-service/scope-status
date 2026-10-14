@@ -28,13 +28,15 @@ const (
 	shutdownGrace      = 5 * time.Second
 	exitShutdownForced = 254
 	// 会话 token 的有效期：过期就得重新粘一次 AUTH_TOKEN
-	sessionTTL = 7 * 24 * time.Hour
-	// 会话签名密钥的下限：太短就挡不住猜
-	minSessionKeyLen = 16
+	sessionTTL = 30 * 24 * time.Hour
 )
 
-// /readyz 的口令：够长的随机串，只允许小写字母、数字与下划线
-var readyzTokenPattern = regexp.MustCompile(`^[a-z0-9_]{16,128}$`)
+// 三个密钥的形状卡死：够长的随机串，字符集只留大小写字母、数字与下划线，写错直接拒绝启动
+var (
+	authTokenPattern         = regexp.MustCompile(`^[A-Za-z0-9_]{16,128}$`)
+	sessionSigningKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_]{32,128}$`)
+	readyzTokenPattern       = regexp.MustCompile(`^[A-Za-z0-9_]{16,128}$`)
+)
 
 var hostPattern = regexp.MustCompile(`^[a-zA-Z0-9.-]+$`)
 
@@ -188,7 +190,7 @@ func loadEnv() (envConfig, error) {
 	}
 	readyzToken := strings.TrimSpace(os.Getenv("READYZ_TOKEN"))
 	if readyzToken != "" && !readyzTokenPattern.MatchString(readyzToken) {
-		return envConfig{}, fmt.Errorf("READYZ_TOKEN must be 16-128 chars of [a-z0-9_], got %d chars", len(readyzToken))
+		return envConfig{}, fmt.Errorf("READYZ_TOKEN must be 16-128 chars of [A-Za-z0-9_], got %d chars", len(readyzToken))
 	}
 	os.Unsetenv("READYZ_TOKEN")
 	// 整个站点的门禁就是这个 token：没设就等于把 /api 全敞开，所以宁可不启动。
@@ -197,6 +199,9 @@ func loadEnv() (envConfig, error) {
 	authToken := strings.TrimSpace(os.Getenv("AUTH_TOKEN"))
 	if authToken == "" {
 		return envConfig{}, fmt.Errorf("AUTH_TOKEN must be set")
+	}
+	if !authTokenPattern.MatchString(authToken) {
+		return envConfig{}, fmt.Errorf("AUTH_TOKEN must be 16-128 chars of [A-Za-z0-9_], got %d chars", len(authToken))
 	}
 	os.Unsetenv("AUTH_TOKEN")
 	authTokenHash, err := core.HashToken(authToken)
@@ -209,8 +214,8 @@ func loadEnv() (envConfig, error) {
 	if sessionSigningKey == "" {
 		return envConfig{}, fmt.Errorf("SESSION_SIGNING_KEY must be set")
 	}
-	if len(sessionSigningKey) < minSessionKeyLen {
-		return envConfig{}, fmt.Errorf("SESSION_SIGNING_KEY must be at least %d chars, got %d", minSessionKeyLen, len(sessionSigningKey))
+	if !sessionSigningKeyPattern.MatchString(sessionSigningKey) {
+		return envConfig{}, fmt.Errorf("SESSION_SIGNING_KEY must be 32-128 chars of [A-Za-z0-9_], got %d chars", len(sessionSigningKey))
 	}
 	os.Unsetenv("SESSION_SIGNING_KEY")
 	streamSeconds, err := envFloat("STREAM_INTERVAL", 5)

@@ -53,8 +53,10 @@ vet: frontend-stub
 fmt:
     go fmt ./...
 
-# 本机跑起来（HOST / PORT / AUTH_TOKEN / READYZ_TOKEN / TZ 等直接走环境变量；AUTH_TOKEN 必填）
+# 本机跑起来（HOST / PORT / AUTH_TOKEN / SESSION_SIGNING_KEY / READYZ_TOKEN / TZ 等直接走环境变量；
+# 前两个必填，DATA_DIR 不存在就先建出来）
 run: frontend
+    @mkdir -p {{ DATA_DIR }}
     DATA_DIR={{ DATA_DIR }} go run .
 
 # 停止本机上这份服务：按监听端口定位进程 → 确认确实属于本项目 → SIGINT

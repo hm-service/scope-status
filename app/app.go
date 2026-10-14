@@ -1,7 +1,9 @@
 package app
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -27,12 +29,9 @@ type App struct {
 	Monitor    *Monitor
 }
 
-// New 建应用容器：建数据目录、收紧权限、读配置，任何一步不成立就直接失败。
+// New 建应用容器：校验数据目录、收紧权限、读配置，任何一步不成立就直接失败。
 func New(cfg Config) (*App, error) {
-	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
-		return nil, err
-	}
-	if err := os.Chmod(cfg.DataDir, 0o700); err != nil {
+	if err := prepareDataDir(cfg.DataDir); err != nil {
 		return nil, err
 	}
 	sourcePath := filepath.Join(cfg.DataDir, SourceFileName)
@@ -67,6 +66,30 @@ func (a *App) Ready() error {
 	probe := filepath.Join(a.DataDir, ".readyz")
 	if err := os.WriteFile(probe, []byte("ok"), 0o600); err != nil {
 		return core.ServerError(i18n.KeyHTTPNotReadyCause, err.Error())
+	}
+	return os.Remove(probe)
+}
+
+// prepareDataDir 只认已经存在的数据目录：目录是部署方交进来的（卷挂载、手工建），
+// 缺了就当场失败，不用「顺手建一个」把路径写错的部署掩盖过去。建完收紧到 0700，
+// 再写一个探针文件确认真的可写，省得等第一次落盘才发现。
+func prepareDataDir(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("DATA_DIR %s does not exist", path)
+		}
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("DATA_DIR %s is not a directory", path)
+	}
+	if err := os.Chmod(path, 0o700); err != nil {
+		return err
+	}
+	probe := filepath.Join(path, ".startup")
+	if err := os.WriteFile(probe, []byte("ok"), 0o600); err != nil {
+		return fmt.Errorf("DATA_DIR %s is not writable: %w", path, err)
 	}
 	return os.Remove(probe)
 }
