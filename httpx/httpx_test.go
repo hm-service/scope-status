@@ -82,6 +82,12 @@ func TestSecurityHeaders(t *testing.T) {
 		}
 	}
 	t.Fatal("CSP 里没有 script-src")
+
+	// 回归：upgrade-insecure-requests 会把明文页面上的子资源改写成 https，
+	// 而本站常用明文内网地址访问——那会把 CSS / JS 全部打死，整页白屏。
+	if strings.Contains(ContentSecurityPolicy, "upgrade-insecure-requests") {
+		t.Error("CSP 里又出现了 upgrade-insecure-requests：明文内网访问会把整页资源打死")
+	}
 }
 
 func TestRecorderKeepsStatusAndFlush(t *testing.T) {

@@ -8,9 +8,13 @@ import "net/http"
 // 页面里不许有内联脚本（防闪的主题脚本是 /theme.js），所以 script-src 能收成 'self'；
 // 不必再维护 hash。样式放开内联，因为 Vue 的 :style 绑定落在 style 属性上。
 // 图片额外允许 https：站点图标是被监控站点自己的 URL，由服务端发现后发给前端。
+//
+// 故意不写 upgrade-insecure-requests：这条指令会把明文页面上的子资源一律改写成 https，
+// 而本站常常就用明文内网地址访问（http://10.8.x.x:8080）。实测在 http://172.22.x.x:8080 下
+// CSS / JS / theme.js / favicon 全被升级成 https，整页白屏。TLS 由反代负责，HSTS 也该由反站发。
 const ContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
 	"img-src 'self' https:; connect-src 'self'; base-uri 'none'; form-action 'self'; " +
-	"frame-ancestors 'none'; object-src 'none'; upgrade-insecure-requests"
+	"frame-ancestors 'none'; object-src 'none'"
 
 // Security 给所有响应补上默认安全头。
 func Security(next http.Handler) http.Handler {

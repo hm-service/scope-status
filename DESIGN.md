@@ -78,7 +78,9 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 `Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`，还有一条整站 CSP：`script-src 'self'`（页面里没有内联脚本，
 防闪主题是同源的 `/theme.js`）、`style-src 'self' 'unsafe-inline'`（Vue 的 `:style` 落在 style 属性上）、
 `img-src 'self' https:`（站点图标来自被监控站点自己的 URL）、`connect-src 'self'`、`frame-ancestors 'none'`、
-`base-uri 'none'`、`form-action 'self'`、`object-src 'none'`、`upgrade-insecure-requests`。
+`base-uri 'none'`、`form-action 'self'`、`object-src 'none'`。
+故意不带 `upgrade-insecure-requests`：它会把明文页面上的子资源改写成 https，而本站常用明文内网地址访问，
+实测那样的页面下 CSS / JS 全被升级成 https 而白屏；TLS 与 HSTS 都归反代。
 
 | 方法         | 路径                                    | 说明                                                         |
 | ------------ | --------------------------------------- | ------------------------------------------------------------ |
