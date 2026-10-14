@@ -8,12 +8,16 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+	"time"
 
 	"github.com/hm-service/scope-status/app"
 	"github.com/hm-service/scope-status/core"
 	"github.com/hm-service/scope-status/httpx"
 	"github.com/hm-service/scope-status/i18n"
 )
+
+// DefaultAuthFloor 是认证步骤的时间下限：验 token 不能秒回，成功与失败都一样。
+const DefaultAuthFloor = time.Second
 
 type Options struct {
 	App                  *app.App
@@ -22,6 +26,7 @@ type Options struct {
 	TrustedProxies       []netip.Prefix
 	ReadyzToken          string
 	AuthTokenHash        string
+	AuthFloor            time.Duration
 	MaxAPIConcurrency    int
 	MaxStaticConcurrency int
 }
@@ -33,6 +38,9 @@ type Server struct {
 }
 
 func New(opts Options) *Server {
+	if opts.AuthFloor <= 0 {
+		opts.AuthFloor = DefaultAuthFloor
+	}
 	return &Server{
 		opts:      opts,
 		apiSem:    make(chan struct{}, max(1, opts.MaxAPIConcurrency)),

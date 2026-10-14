@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/hm-service/scope-status/core"
 	"github.com/hm-service/scope-status/httpx"
@@ -26,15 +27,28 @@ func (s *Server) handleAuth(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
-	if token == nil {
-		s.failAuth(w, r, i18n.KeyHTTPAuthRequired)
-		return
+
+	started := time.Now()
+	key := i18n.KeyHTTPAuthRequired
+	passed := false
+	if token != nil {
+		if passed = s.tokenMatches(*token); !passed {
+			key = i18n.KeyHTTPTokenBad
+		}
 	}
-	if !s.tokenMatches(*token) {
-		s.failAuth(w, r, i18n.KeyHTTPTokenBad)
+	s.waitAuthFloor(started)
+	if !passed {
+		s.failAuth(w, r, key)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, authView{OK: true})
+}
+
+// waitAuthFloor 把认证步骤补足到下限：成功与失败都一样，快慢里读不出东西。
+func (s *Server) waitAuthFloor(started time.Time) {
+	if wait := s.opts.AuthFloor - time.Since(started); wait > 0 {
+		time.Sleep(wait)
+	}
 }
 
 // requireAuth 包住整个 /api/*：只认 Authorization: Bearer <AUTH_TOKEN>。

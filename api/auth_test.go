@@ -4,7 +4,9 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/hm-service/scope-status/api"
 	"github.com/hm-service/scope-status/internal/testenv"
 )
 
@@ -118,6 +120,41 @@ func TestAuthErrorFollowsLanguage(t *testing.T) {
 	chinese := callWith(t, env, env.RawClient, http.MethodGet, "/api/status", "", [2]string{"Accept-Language", "zh-CN"})
 	if !strings.Contains(string(chinese.body), "需要 Bearer token") {
 		t.Fatalf("中文文案 = %q", chinese.body)
+	}
+}
+
+// 认证步骤至少花掉 AuthFloor：成功与失败都一样，快慢里读不出东西。
+func TestAuthStepHonoursFloor(t *testing.T) {
+	const floor = 120 * time.Millisecond
+	env := testenv.NewWith(t, testenv.DefaultSource, testenv.Options{AuthFloor: floor})
+	cases := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"token 对", `{"token":"` + testenv.DefaultAuthToken + `"}`, http.StatusOK},
+		{"token 错", `{"token":"nope"}`, http.StatusUnauthorized},
+		{"没带 token", `{}`, http.StatusUnauthorized},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			started := time.Now()
+			response := callWith(t, env, env.RawClient, http.MethodPost, "/api/auth", testCase.body)
+			elapsed := time.Since(started)
+			if response.status != testCase.want {
+				t.Fatalf("状态码 = %d，想要 %d（%s）", response.status, testCase.want, response.body)
+			}
+			if elapsed < floor {
+				t.Fatalf("认证步骤只花了 %v，短于下限 %v", elapsed, floor)
+			}
+		})
+	}
+}
+
+// 默认下限是 1 秒，调用方不指定也不会退化成"秒回"。
+func TestAuthFloorDefault(t *testing.T) {
+	if api.DefaultAuthFloor < time.Second {
+		t.Fatalf("默认下限 = %v，至少要 1 秒", api.DefaultAuthFloor)
 	}
 }
 

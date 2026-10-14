@@ -41,7 +41,8 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 - 每页顶部一条概况栏（总数 / 在线 / 离线，消息页是总数 / 最近消息），四个页高度一致，
   切换标签不抖。
 - 进站先查 token：本地没有就 `location.replace('/auth')`；`/auth` 拿 token 换一次 `POST /api/auth`，
-  通过了存进 `localStorage` 再回首页。主站与认证页共用一套主题与语言设置。
+  通过了存进 `localStorage` 再回首页。认证步骤至少 1 秒，这期间按钮是「校验中…」（自动校验时也一样）。
+  主站与认证页共用一套主题与语言设置。
 - 主题：默认浅色，可切深色，记在 `localStorage`；≤560px 走卡片式布局。
 - 语言：默认按 `navigator.language`（`zh*` → 简体中文，其余 → English），顶栏可切换，记在
   `localStorage`；每次 `fetch` 带 `Accept-Language`，服务端错误文案跟着一起切。
@@ -56,12 +57,15 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 比较用恒定时间，token 只从环境变量来，盘上不落。静态资源（含 `/auth` 页）与 `/livez` `/readyz` 不受影响：
 浏览器要能先打开认证页，kubelet 要能直接探。
 
+`POST /api/auth` 是**认证步骤**：至少花 1 秒（成功与失败一样），别让人拿它当高速试探口；
+请求级的 Bearer 校验只走一次 Argon2id（约 30 ms），不再叠这个下限——否则每个 API 调用、每次 SSE 重连都要等一秒。
+
 响应头默认带 `Content-Language` + `Vary: Accept-Language`，以及 `X-Content-Type-Options: nosniff`、
 `Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`。
 
 | 方法         | 路径                                    | 说明                                                         |
 | ------------ | --------------------------------------- | ------------------------------------------------------------ |
-| `POST`       | `/api/auth`                             | 用请求体里的 `token` 换 `{ok:true}`；不对 `401`（唯一免鉴权的 /api 口） |
+| `POST`       | `/api/auth`                             | 请求体里的 `token` 换 `{ok:true}`；认证步骤至少 1 秒，不对 `401`（唯一免鉴权的 /api 口） |
 | `GET`        | `/api/status`                           | 当前共享快照；还没有快照时 `204`                             |
 | `GET`        | `/api/status?force=1`                   | 强制探一次再回                                               |
 | `GET`        | `/api/events`                           | SSE：先补一帧 `messages`，再推 `snapshot` / `messages`       |
@@ -259,6 +263,8 @@ data: {…快照，多一个 "reused": false…}
   `ping` 这类子进程继承不到。每个请求把请求头里那份 token 用同一个盐再散一遍，`crypto/subtle` 恒定时间比较
   （一次约 30 ms、19 MiB，同并发最多 4 个哈希在算）。
   同机同用户的进程仍能从 `/proc/<pid>/environ` 读到原始 exec 环境块，真要躲开这一层就把 token 放 Secret / 一次性文件注入。
+- **认证步骤至少 1 秒**：`POST /api/auth` 无论成功失败都补足到 1 秒（`api.DefaultAuthFloor`，
+  用例里可注入更短的下限），快慢里读不出 token 对不对；请求级的 Bearer 校验不叠这个下限，只有一次 Argon2id。
 - **界面是公开的**：`index.html` / `auth.html` / 静态资源不含数据，谁都拿得到；数据全在 `/api/*` 后面。
   浏览器进站先看 `localStorage` 里有没有 token，没有就去 `/auth`；任何 API 回 `401` 就清掉本地 token 并回认证页。
 - token 就存在 `localStorage` 里：页面用 Vue 的插值渲染消息，没有任何用户内容进 `innerHTML`，

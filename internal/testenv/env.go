@@ -44,6 +44,8 @@ type Options struct {
 	StreamInterval time.Duration
 	ReadyzToken    string
 	AuthToken      string
+	// AuthFloor 默认压到 1ms：认证步骤的下限本身另有专门用例，别让每个用例都真等 1 秒
+	AuthFloor      time.Duration
 	MaxUploadBytes int64
 	Static         fs.FS
 }
@@ -103,6 +105,10 @@ func NewWith(t *testing.T, source string, opts Options) *Env {
 		static = Static()
 	}
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	authFloor := opts.AuthFloor
+	if authFloor == 0 {
+		authFloor = time.Millisecond
+	}
 	handler := api.New(api.Options{
 		App:                  application,
 		Static:               static,
@@ -110,6 +116,7 @@ func NewWith(t *testing.T, source string, opts Options) *Env {
 		TrustedProxies:       nil,
 		ReadyzToken:          opts.ReadyzToken,
 		AuthTokenHash:        authTokenHash,
+		AuthFloor:            authFloor,
 		MaxAPIConcurrency:    8,
 		MaxStaticConcurrency: 4,
 	}).Handler()

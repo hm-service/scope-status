@@ -176,6 +176,9 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" localhost:8080/api/reload | jq
 除 `POST /api/auth`（拿 token 换 `{ok:true}`，认证页用它）外，每个 `/api/*` 都要 `Authorization: Bearer <AUTH_TOKEN>`，
 缺 / 错一律 `401` 并带 `WWW-Authenticate: Bearer`；`/`、`/auth`、静态资源、`/livez`、`/readyz` 不需要。
 
+`POST /api/auth` 是认证步骤：**成功与失败都至少花 1 秒**（`api.DefaultAuthFloor`），别让人拿它当高速试探口；
+其余请求的 Bearer 校验只有一次 Argon2id（约 30 ms），不叠这个下限，看板才不至于每次调用都等一秒。
+
 `/api/*` 的错误体统一是 `{"detail": "…"}`（前端只读 `detail`），方法不对回 `405` 并带准的 `Allow`；所有响应带
 `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`。`/livez` 永远 200 且不记日志；
 `/readyz` 校验口令（不对回 `401`）与数据目录 / 数据文件权限（不对回 `503`，细节只进后端日志）。
