@@ -27,7 +27,7 @@ type Options struct {
 	TrustedProxies       []netip.Prefix
 	ReadyzToken          string
 	AuthTokenHash        string
-	Sessions             *core.Sessions
+	SessionSigner        *core.SessionSigner
 	AuthFloor            time.Duration
 	MaxAPIConcurrency    int
 	MaxStaticConcurrency int

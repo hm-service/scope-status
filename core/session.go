@@ -6,60 +6,75 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
-	"sync"
+	"strconv"
+	"strings"
+	"time"
 )
 
-// sessionLimit 是最多同时存活的会话数：每个浏览器登录一次签一条，超了丢最旧的。
-const sessionLimit = 32
+// sessionVersion 是签名串的版本域：换格式就换它，老 token 自然全部失效。
+const sessionVersion = "v1"
 
-// Sessions 是内存里的会话表：启动时随机生成一把 HMAC 密钥，签出去的 token 只留摘要，
-// 密钥与摘要都随进程消失，所以重启即全部失效，盘上没有任何会话痕迹。
-type Sessions struct {
-	key     []byte
-	mu      sync.Mutex
-	digests [][sha256.Size]byte
+// sessionNonceLen 是每条 token 的随机部分：16 字节够唯一，token 也不会太长。
+const sessionNonceLen = 16
+
+// SessionSigner 签发与校验无状态的会话 token：
+//
+//	<base64url(exp|nonce)>.<base64url(HMAC-SHA256(key, "v1|"+前面那串))>
+//
+// 服务端不存任何会话：验签就是拿收到的原文重算一遍 MAC。密钥从 SESSION_SIGNING_KEY 来，
+// 部署级共享，所以多个副本各验各的也能互通。
+type SessionSigner struct {
+	key []byte
+	ttl time.Duration
 }
 
-func NewSessions() (*Sessions, error) {
-	key := make([]byte, 32)
-	if _, err := rand.Read(key); err != nil {
-		return nil, err
-	}
-	return &Sessions{key: key, digests: make([][sha256.Size]byte, 0, sessionLimit)}, nil
+func NewSessionSigner(key []byte, ttl time.Duration) *SessionSigner {
+	return &SessionSigner{key: key, ttl: ttl}
 }
 
-// Issue 签一条会话：token = HMAC(启动时的随机密钥, 随机 nonce)，内存里只留它的 SHA-256。
-func (s *Sessions) Issue() (string, error) {
-	nonce := make([]byte, 32)
+// Issue 签一条会话：过期时间是「现在 + TTL」，秒级时间戳。
+func (s *SessionSigner) Issue() (string, error) {
+	nonce := make([]byte, sessionNonceLen)
 	if _, err := rand.Read(nonce); err != nil {
 		return "", err
 	}
-	mac := hmac.New(sha256.New, s.key)
-	mac.Write(nonce)
-	token := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-	digest := sha256.Sum256([]byte(token))
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.digests) == sessionLimit {
-		copy(s.digests, s.digests[1:])
-		s.digests = s.digests[:sessionLimit-1]
-	}
-	s.digests = append(s.digests, digest)
-	return token, nil
+	plain := strconv.FormatInt(time.Now().Add(s.ttl).Unix(), 10) + "|" + base64.RawURLEncoding.EncodeToString(nonce)
+	payload := base64.RawURLEncoding.EncodeToString([]byte(plain))
+	return payload + "." + base64.RawURLEncoding.EncodeToString(s.sign(payload)), nil
 }
 
-// Valid 只认签发过的会话：比的是摘要，恒定时间，且不因为提前命中就少比几条。
-func (s *Sessions) Valid(token string) bool {
-	if token == "" {
+// Valid 先验签、再信字段：MAC 不对、形状不对、过期了都只回 false，不解释原因。
+func (s *SessionSigner) Valid(token string) bool {
+	payload, encoded, found := strings.Cut(token, ".")
+	if !found || payload == "" || encoded == "" || strings.Contains(encoded, ".") {
 		return false
 	}
-	digest := sha256.Sum256([]byte(token))
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	matched := 0
-	for _, known := range s.digests {
-		matched |= subtle.ConstantTimeCompare(known[:], digest[:])
+	signature, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil || subtle.ConstantTimeCompare(signature, s.sign(payload)) != 1 {
+		return false
 	}
-	return matched == 1
+	plain, err := base64.RawURLEncoding.DecodeString(payload)
+	if err != nil {
+		return false
+	}
+	rawExpires, rawNonce, found := strings.Cut(string(plain), "|")
+	if !found {
+		return false
+	}
+	expires, err := strconv.ParseInt(rawExpires, 10, 64)
+	if err != nil {
+		return false
+	}
+	nonce, err := base64.RawURLEncoding.DecodeString(rawNonce)
+	if err != nil || len(nonce) != sessionNonceLen {
+		return false
+	}
+	return time.Now().Before(time.Unix(expires, 0))
+}
+
+// sign 签的是 token 里那段原文，不是解码后的字段：这样不存在「解析再拼回去」的歧义。
+func (s *SessionSigner) sign(payload string) []byte {
+	mac := hmac.New(sha256.New, s.key)
+	mac.Write([]byte(sessionVersion + "|" + payload))
+	return mac.Sum(nil)
 }

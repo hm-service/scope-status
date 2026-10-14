@@ -27,6 +27,10 @@ const (
 	// 优雅退出的宽限期；超过就强关，并以此退出码表明是被强制的
 	shutdownGrace      = 5 * time.Second
 	exitShutdownForced = 254
+	// 会话 token 的有效期：过期就得重新粘一次 AUTH_TOKEN
+	sessionTTL = 7 * 24 * time.Hour
+	// 会话签名密钥的下限：太短就挡不住猜
+	minSessionKeyLen = 16
 )
 
 // /readyz 的口令：够长的随机串，只允许小写字母、数字与下划线
@@ -40,6 +44,7 @@ type envConfig struct {
 	Port                 int
 	ReadyzToken          string
 	AuthTokenHash        string
+	SessionSigningKey    string
 	TrustedProxies       []netip.Prefix
 	StreamInterval       time.Duration
 	MaxAPIConcurrency    int
@@ -83,12 +88,8 @@ func run() int {
 		startupFailed(err)
 		return 1
 	}
-	// 会话表：启动时生成一把随机密钥，只活在内存里，重启即全部失效
-	sessions, err := core.NewSessions()
-	if err != nil {
-		startupFailed(err)
-		return 1
-	}
+	// 会话签名器：密钥从环境变量来，多副本共用同一把就能互相认会话
+	sessions := core.NewSessionSigner([]byte(cfg.SessionSigningKey), sessionTTL)
 	handler := api.New(api.Options{
 		App:                  application,
 		Static:               static,
@@ -96,7 +97,7 @@ func run() int {
 		TrustedProxies:       cfg.TrustedProxies,
 		ReadyzToken:          cfg.ReadyzToken,
 		AuthTokenHash:        cfg.AuthTokenHash,
-		Sessions:             sessions,
+		SessionSigner:        sessions,
 		MaxAPIConcurrency:    cfg.MaxAPIConcurrency,
 		MaxStaticConcurrency: cfg.MaxStaticConcurrency,
 	}).Handler()
@@ -201,6 +202,16 @@ func loadEnv() (envConfig, error) {
 	if err != nil {
 		return envConfig{}, fmt.Errorf("AUTH_TOKEN cannot be hashed: %w", err)
 	}
+	// 会话靠签名活，认证靠这把密钥而不是 AUTH_TOKEN：换密钥 = 所有会话立刻失效。
+	// 签名要用原始密钥，所以它不能像 AUTH_TOKEN 那样只留摘要；同样读完就清掉环境变量。
+	sessionSigningKey := strings.TrimSpace(os.Getenv("SESSION_SIGNING_KEY"))
+	if sessionSigningKey == "" {
+		return envConfig{}, fmt.Errorf("SESSION_SIGNING_KEY must be set")
+	}
+	if len(sessionSigningKey) < minSessionKeyLen {
+		return envConfig{}, fmt.Errorf("SESSION_SIGNING_KEY must be at least %d chars, got %d", minSessionKeyLen, len(sessionSigningKey))
+	}
+	os.Unsetenv("SESSION_SIGNING_KEY")
 	streamSeconds, err := envFloat("STREAM_INTERVAL", 5)
 	if err != nil {
 		return envConfig{}, err
@@ -240,6 +251,7 @@ func loadEnv() (envConfig, error) {
 		Port:                 port,
 		ReadyzToken:          readyzToken,
 		AuthTokenHash:        authTokenHash,
+		SessionSigningKey:    sessionSigningKey,
 		TrustedProxies:       trusted,
 		StreamInterval:       time.Duration(streamSeconds * float64(time.Second)),
 		MaxAPIConcurrency:    maxAPI,

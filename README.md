@@ -11,8 +11,9 @@
 - 配置与状态都在 `DATA_DIR`：手写的 `<DATA_DIR>/source.yaml` + 消息 `<DATA_DIR>/messages`，挂一个卷就是全部。
 - 推送：只有 SSE，没有轮询；`GET /api/status` 读的是共享快照，恒定时间返回。
 - 文案：中英双语，前后端各一张表，未知键原样显示（漏配一眼可见）。
-- 鉴权只有一条：原始 `AUTH_TOKEN` 只在认证页用一次，换回一条会话 token；之后每个请求带的是会话。
-  原始 token 读完就 Argon2id 散列（进程里只留摘要），会话只在内存里（重启即失效）。
+- 鉴权只有一条：原始 `AUTH_TOKEN` 只在认证页用一次，换回一条**无状态签名会话**（`….<HMAC>`，7 天有效期）；
+  之后每个请求带的是会话，服务端不存会话，验签就是重算一遍 MAC。
+  原始 token 读完就 Argon2id 散列（进程里只留摘要），会话签名密钥从 `SESSION_SIGNING_KEY` 来。
 - 依赖两个：`gopkg.in/yaml.v3`（`source.yaml` 是人手写的 YAML，标准库没有解析器）与
   `golang.org/x/crypto`（token 用 Argon2id 单向化，内存不存明文）；其余全走标准库。
 
@@ -46,8 +47,14 @@ AUTH_TOKEN=改成你自己的口令 just run   # 构建前端 → 配置与数�
 ```
 
 打开 <http://127.0.0.1:8080/> 会先落到 `/auth`，把同一个 `AUTH_TOKEN` 粘进去即可。`AUTH_TOKEN` 是必填的，
-不设就直接拒绝启动（整个 `/api` 都靠它挡着）。登录这一步至少花 1 秒，换来一条只活在本次进程里的会话；
-服务端一重启会话就失效，重新粘一次 `AUTH_TOKEN` 即可。
+不设就直接拒绝启动（整个 `/api` 都靠它挡着）。启动还需要 `SESSION_SIGNING_KEY`（会话签名密钥，至少 16 字符）：
+
+```bash
+AUTH_TOKEN=你的口令 SESSION_SIGNING_KEY=$(openssl rand -hex 32) just run
+```
+
+登录这一步至少花 1 秒，换回一条 7 天有效的签名会话；服务端重启不影响已登录的浏览器，
+换 `SESSION_SIGNING_KEY` 才会把所有人踢下线。
 
 等价的手工流程：
 
@@ -151,6 +158,7 @@ Vite 那边把 `/auth` 改写成 `auth.html`（线上是后端做的这件事）
 | `TZ` | 系统默认 | 时区，影响日志时间戳与消息文件名 |
 | `HOST` / `PORT` | `127.0.0.1` / `8080` | 监听地址与端口 |
 | `AUTH_TOKEN` | 无 | **必填**，登录用的原始口令；为空拒绝启动。启动时 Argon2id 散列，内存只留摘要 |
+| `SESSION_SIGNING_KEY` | 无 | **必填**，会话 token 的 HMAC 密钥，至少 16 字符；换它 = 所有会话立刻失效 |
 | `READYZ_TOKEN` | 空 | 非空时 `/readyz` 必须带 `?token=` |
 | `TRUSTED_PROXIES` | `127.0.0.1/32,::1/128` | 可信反代网段，决定真实客户端 IP 怎么取 |
 | `STREAM_INTERVAL` | `5` | SSE 循环探测间隔（秒）；`0` 表示不起循环、只在请求时探 |
@@ -187,8 +195,10 @@ SESSION=$(curl -s -X POST -d "{\"token\":\"$AUTH_TOKEN\"}" localhost:8080/api/au
 curl -s -H "Authorization: Bearer $SESSION" localhost:8080/api/health | jq
 ```
 
-会话是 HMAC（密钥每次启动随机生成），服务端只留它的 SHA-256，所以后续请求的校验只是一次摘要比较；
-原始 token 不能当会话用，进程重启后所有会话失效，重新登录一次即可。
+会话是**无状态签名 token**：`<base64url(exp|nonce)>.<base64url(HMAC-SHA256(key,"v1|" + 前面那段))>`，
+服务端不存任何东西，验签就是拿收到的原文重算一遍 MAC 再看 `exp`，所以后续请求的校验快且无状态；
+密钥走 `SESSION_SIGNING_KEY`，多副本共用同一把就能互相认会话。原始 token 不能当会话用。
+有效期 7 天（`sessionTTL`，在 `main.go`）；换 `SESSION_SIGNING_KEY` 等于全员登出，只换 `AUTH_TOKEN` 不会踢掉已有会话。
 
 `/api/*` 的错误体统一是 `{"detail": "…"}`（前端只读 `detail`），方法不对回 `405` 并带准的 `Allow`；所有响应带
 `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`。`/livez` 永远 200 且不记日志；
@@ -239,8 +249,8 @@ just check    # vet + test + 前端 vue-tsc
 
 | 包 | 覆盖率 | 说明 |
 | --- | --- | --- |
-| `main` | 33.6% | 环境变量校验：`AUTH_TOKEN` 必填、散列、清掉环境变量 |
-| `core` | 84.3% | 配置解析与校验、探测、消息标识、token 的 Argon2id 摘要、内存会话表 |
+| `main` | 37.2% | 环境变量校验：两个密钥必填、散列、清掉环境变量 |
+| `core` | 84.0% | 配置解析与校验、探测、消息标识、口令的 Argon2id 摘要、无状态会话签名 |
 | `store` | 72.7% | `source.yaml` 读取、消息与附件池读写 |
 | `app` | 73.2% | 探测循环、快照、广播、消息用例 |
 | `api` | 82.7% | 路由、登录换会话、会话鉴权、SSE、消息接口、静态文件、探针 |
@@ -278,7 +288,7 @@ podman kube play k8s.scope-status.yaml         # ConfigMap 注环境变量，PVC
 - 镜像分三个阶段：node 构建前端 → Go 交叉编译静态二进制 → alpine 运行时（只放那一个二进制 + curl/tzdata）。
 - `k8s.scope-status.yaml` 里容器开 `readOnlyRootFilesystem` 并 `drop: ALL`，只有 `/data` 可写；`<DATA_DIR>/source.yaml` 需要自己放进卷里（`podman cp` 或宿主目录型 PV），里面有密码，别提交进公共仓库。
 - 探针分两个：`/livez` 只看进程且不记日志；`/readyz` 查依赖（配置载入、数据目录可写）并记一条审计日志，`READYZ_TOKEN` 能挡住外部探测。两个探针都不需要 `AUTH_TOKEN`，kubelet 不用改。
-- `AUTH_TOKEN` 在清单里是占位值，上线前换成自己生成的长口令；介意明文的话把这一条挪进 Secret，用 `envFrom.secretRef` 注进来（`READYZ_TOKEN` 同理）。
+- `AUTH_TOKEN` 与 `SESSION_SIGNING_KEY` 在清单里都是占位值，上线前换成自己生成的随机值（`openssl rand -hex 32`）；介意明文的话把这两条挪进 Secret，用 `envFrom.secretRef` 注进来（`READYZ_TOKEN` 同理）。
 - 反代要看 SSE：[`docs/reverse-proxy.md`](docs/reverse-proxy.md) 给了 nginx / Caddy 的要点（核心是关掉响应缓冲）。
 - 数据目录就是全部状态：`messages/` 下的消息与附件，删掉即重建。
 

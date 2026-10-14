@@ -12,7 +12,7 @@ const en: Record<I18nKey, string> = {
   'auth.failed': 'Check failed: {message}',
   'auth.noSession': 'the server returned no session, try again',
   'auth.noStorage': 'this browser refuses localStorage, so the session cannot be kept — try another browser or a normal window',
-  'auth.hint': 'The token is sent once at login. The browser keeps a server-issued session token, which dies with the server process.',
+  'auth.hint': 'The token is sent once at login. The browser keeps a signed session token with an expiry; sign in again once it lapses.',
 
   'topbar.connecting': 'Connecting…',
   'topbar.notUpdated': 'No update yet',

@@ -62,8 +62,8 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 			s.failAuth(w, r, i18n.KeyHTTPAuthRequired)
 			return
 		}
-		// Sessions 由接线时注入，缺了就是接线错了：失败关闭，不放行
-		if s.opts.Sessions == nil || !s.opts.Sessions.Valid(token) {
+		// SessionSigner 由接线时注入，缺了就是接线错了：失败关闭，不放行
+		if s.opts.SessionSigner == nil || !s.opts.SessionSigner.Valid(token) {
 			s.failAuth(w, r, i18n.KeyHTTPTokenBad)
 			return
 		}
@@ -73,10 +73,10 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 
 // issueSession 只在验过之后签会话；没验过不给，随机源坏了就报 500。
 func (s *Server) issueSession(passed bool) (string, error) {
-	if !passed || s.opts.Sessions == nil {
+	if !passed || s.opts.SessionSigner == nil {
 		return "", nil
 	}
-	return s.opts.Sessions.Issue()
+	return s.opts.SessionSigner.Issue()
 }
 
 // waitAuthFloor 把认证步骤补足到「下限 + 随机抖动」，成功与失败走同一条路。

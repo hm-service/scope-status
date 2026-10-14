@@ -10,7 +10,8 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 | `TZ`                     | `Asia/Shanghai`        | 时区；影响日志时间戳与消息文件名                         |
 | `HOST`                   | `127.0.0.1`            | 监听地址                                                 |
 | `PORT`                   | `8080`                 | 监听端口                                                 |
-| `AUTH_TOKEN`             | 无                     | **必填**，整个站点的 Bearer token；为空（或只有空白）拒绝启动。读完立刻 Argon2id 散列，进程里只留摘要 |
+| `AUTH_TOKEN`             | 无                     | **必填**，登录口令；为空（或只有空白）拒绝启动。读完立刻 Argon2id 散列，进程里只留摘要 |
+| `SESSION_SIGNING_KEY`    | 无                     | **必填**，会话 token 的 HMAC 密钥，至少 16 字符；换它 = 所有会话立刻失效 |
 | `READYZ_TOKEN`           | 空                         | 非空时 `/readyz` 必须带 `?token=`；16–128 位小写字母/数字/下划线，写错拒绝启动 |
 | `TRUSTED_PROXIES`        | `127.0.0.1/32,::1/128` | 可信反代来源，决定真实客户端 IP 怎么取                   |
 | `STREAM_INTERVAL`        | `5`                    | SSE 循环探测间隔秒数；`0` 表示不起循环（只按需探测）     |
@@ -21,7 +22,7 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 
 - 配置与状态同目录，配置路径写死为 `<DATA_DIR>/source.yaml`：容器把配置当 ConfigMap 挂在数据目录里，
   状态挂 PVC；挂一个卷就是应用的全部。
-- 启动即失败：`AUTH_TOKEN` 没设 / 配置文件不存在 / 解析不通过 / 数据目录建不出来，进程直接报错退出，不做任何降级。
+- 启动即失败：`AUTH_TOKEN` / `SESSION_SIGNING_KEY` 没设 / 配置文件不存在 / 解析不通过 / 数据目录建不出来，进程直接报错退出，不做任何降级。
 - 配置路径没有第二个来源，也没有环境变量能改它；改 `DATA_DIR` 就等于改配置路径，界面上与 `/api/health` 里显示的永远是当前生效的那一份。
 - Kube 部署时 `<DATA_DIR>/source.yaml` 由人手动放进卷（`podman cp` 或宿主目录型 PV），清单里不挂它。
 - 工具链版本在 `go.mod`、`Dockerfile`、CI、`frontend/package.json` 四处对齐（当前 go 1.27.2 / node 26.7.0 / pnpm 12.13.0）。
@@ -43,6 +44,7 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 - 进站先查会话：本地有会话就直接进主站（失效了主站会 401 把人送回 `/auth`），没有就去 `/auth`。
   认证页把原始 `AUTH_TOKEN` 交给 `POST /api/auth`，换回一条会话 token 存进 `localStorage`，再回首页；
   原始 token 不留浏览器。认证步骤至少 1 秒加一段随机抖动，这期间按钮是「校验中…」。
+  会话是**无状态签名 token**（7 天有效期），服务端不存会话，所以重启不影响已登录的浏览器，过期后再登录一次。
   主站与认证页共用一套主题与语言设置。
 - 主题：默认浅色，可切深色，记在 `localStorage`；≤560px 走卡片式布局。
 - 语言：默认按 `navigator.language`（`zh*` → 简体中文，其余 → English），顶栏可切换，记在
@@ -59,9 +61,16 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 浏览器要能先打开认证页，kubelet 要能直接探。
 
 `POST /api/auth` 是**认证步骤**：原始 token 走 Argon2id 摘要校验，成功与失败都至少花 1 秒（再加 0–200 ms 抖动），
-别让人拿它当高速试探口；通过了才签一条会话 token 回去。
-会话 token 是 HMAC（密钥启动时随机生成，只在内存里），服务端只留它的 SHA-256，请求级校验就是一次摘要比较
-（微秒级），所以除登录外的每个请求都不再跑 Argon2id。
+别让人拿它当高速试探口；通过了才签一条会话 token 回去。会话格式：
+
+```
+<base64url(exp|nonce)>.<base64url(HMAC-SHA256(SESSION_SIGNING_KEY, "v1|" + 前面那段))>
+```
+
+服务端**不存任何会话**：验签就是拿收到的原文重算一遍 MAC（微秒级），再看 `exp` 有没有过；
+所以除登录外的每个请求都不跑 Argon2id。签的是 token 里那段原文、不是解码后的字段，不存在「解析再拼回去」的歧义；
+`v1|` 是版本域，换格式就换它，老 token 自然全部失效。
+带上 `&` 的 `exp=…&nonce=…&sign=…` 写法没有采用：RFC 6750 的 `b64token` 不允许 `&`，严格的网关会直接判为非法凭证。
 
 响应头默认带 `Content-Language` + `Vary: Accept-Language`，以及 `X-Content-Type-Options: nosniff`、
 `Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`。
@@ -268,10 +277,14 @@ data: {…快照，多一个 "reused": false…}
   同机同用户的进程仍能从 `/proc/<pid>/environ` 读到原始 exec 环境块，真要躲开这一层就把 token 放 Secret / 一次性文件注入。
 - **认证步骤至少 1 秒**：`POST /api/auth` 无论成功失败都补足到 `1s + 0–200 ms` 的随机等待
   （`api.DefaultAuthFloor` / `authFloorJitter`，用例里可注入更短的下限），快慢里读不出原始 token 对不对。
-- **原始 token 只走一次**：登录验过后换成会话 token 回去，之后每个请求带的都是会话；
-  会话表只在内存里：HMAC 密钥与摘要都随进程消失，重启即全部失效，盘上没有任何会话痕迹。
-  会话是 256 位随机值，所以请求级校验用一次 SHA-256 摘要比较（恒定时间）就够，不必再跑 Argon2id。
-  服务端每个请求的审计日志只记 `client_ip` 与结果，token 一个字符都不进日志。
+- **原始 token 只走一次**：登录验过后换成会话 token 回去，之后每个请求带的都是会话。
+- **会话是无状态签名 token**：`SHA-256` 那套表没了，服务端只留一把 HMAC 密钥（`SESSION_SIGNING_KEY`，部署级，
+  多副本共用同一把就互通）。代价与规矩：
+  - 有效期 TTL 是**唯一**的下线方式（`sessionTTL = 7 天`，在 `main.go`），没有逐条吊销、也没有登出接口；
+  - 服务端重启**不再**让会话失效（这正是无状态的收益）；
+  - 换 `SESSION_SIGNING_KEY` 是"全员登出"开关；而只换 `AUTH_TOKEN` **不会**踢掉已有会话，两者要一起换；
+  - 签名密钥必须保持可用，所以不能像 `AUTH_TOKEN` 那样只留摘要，只能存在进程内存里（读完清环境变量）。
+- 服务端每个请求的审计日志只记 `client_ip` 与结果，token 一个字符都不进日志。
 - **界面是公开的**：`index.html` / `auth.html` / 静态资源不含数据，谁都拿得到；数据全在 `/api/*` 后面。
   浏览器进站先看 `localStorage` 里有没有 token，没有就去 `/auth`；任何 API 回 `401` 就清掉本地 token 并回认证页。
 - token 就存在 `localStorage` 里：页面用 Vue 的插值渲染消息，没有任何用户内容进 `innerHTML`，

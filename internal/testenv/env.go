@@ -39,15 +39,20 @@ links:
     url: https://example.invalid/
 `
 
-// DefaultAuthToken 是测试实例默认的 Bearer token；Env.Client 会自动带上它。
-const DefaultAuthToken = "test-token-0123456789"
+// DefaultAuthToken 是测试实例默认的登录口令；Env.Client 用的是登录换来的会话。
+const (
+	DefaultAuthToken  = "test-token-0123456789"
+	DefaultSessionKey = "test-session-signing-key-0123456789"
+)
 
 type Options struct {
 	StreamInterval time.Duration
 	ReadyzToken    string
 	AuthToken      string
 	// AuthFloor 默认压到 1ms：认证步骤的下限本身另有专门用例，别让每个用例都真等 1 秒
-	AuthFloor      time.Duration
+	AuthFloor time.Duration
+	// SessionTTL 默认 1 小时；传负值就能拿到一条签出来就已经过期的会话
+	SessionTTL     time.Duration
 	MaxUploadBytes int64
 	Static         fs.FS
 }
@@ -103,11 +108,12 @@ func NewWith(t *testing.T, source string, opts Options) *Env {
 	if err != nil {
 		t.Fatalf("散列测试 token 失败：%v", err)
 	}
-	// 会话表：测试实例也是启动时生成一把随机密钥，重启（新实例）即失效
-	sessions, err := core.NewSessions()
-	if err != nil {
-		t.Fatalf("建会话表失败：%v", err)
+	// 会话签名器：TTL 压到 1 小时，过期用例自己传负值
+	sessionTTL := opts.SessionTTL
+	if sessionTTL == 0 {
+		sessionTTL = time.Hour
 	}
+	sessions := core.NewSessionSigner([]byte(DefaultSessionKey), sessionTTL)
 	static := opts.Static
 	if static == nil {
 		static = Static()
@@ -124,7 +130,7 @@ func NewWith(t *testing.T, source string, opts Options) *Env {
 		TrustedProxies:       nil,
 		ReadyzToken:          opts.ReadyzToken,
 		AuthTokenHash:        authTokenHash,
-		Sessions:             sessions,
+		SessionSigner:        sessions,
 		AuthFloor:            authFloor,
 		MaxAPIConcurrency:    8,
 		MaxStaticConcurrency: 4,

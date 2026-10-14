@@ -184,6 +184,19 @@ func TestAuthFloorDefault(t *testing.T) {
 	}
 }
 
+// 会话是签出来的：过期时间写在里面，过了就是 401，不用等谁去清理。
+func TestExpiredSessionRejected(t *testing.T) {
+	env := testenv.NewWith(t, testenv.DefaultSource, testenv.Options{SessionTTL: -time.Second})
+	if env.SessionToken == "" {
+		t.Fatal("登录本身该成功，只是签出来的会话已经过期")
+	}
+	response := callWith(t, env, env.RawClient, http.MethodGet, "/api/status", "",
+		[2]string{"Authorization", "Bearer " + env.SessionToken})
+	if response.status != http.StatusUnauthorized {
+		t.Fatalf("过期会话应该 401，拿到 %d（%s）", response.status, response.body)
+	}
+}
+
 // 认证页与探针不受影响：浏览器要能先打开 /auth，kubelet 要能直接探。
 func TestShellAndProbesStayPublic(t *testing.T) {
 	env := testenv.New(t, testenv.DefaultSource)
