@@ -83,6 +83,12 @@ func run() int {
 		startupFailed(err)
 		return 1
 	}
+	// 会话表：启动时生成一把随机密钥，只活在内存里，重启即全部失效
+	sessions, err := core.NewSessions()
+	if err != nil {
+		startupFailed(err)
+		return 1
+	}
 	handler := api.New(api.Options{
 		App:                  application,
 		Static:               static,
@@ -90,6 +96,7 @@ func run() int {
 		TrustedProxies:       cfg.TrustedProxies,
 		ReadyzToken:          cfg.ReadyzToken,
 		AuthTokenHash:        cfg.AuthTokenHash,
+		Sessions:             sessions,
 		MaxAPIConcurrency:    cfg.MaxAPIConcurrency,
 		MaxStaticConcurrency: cfg.MaxStaticConcurrency,
 	}).Handler()

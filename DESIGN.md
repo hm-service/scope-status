@@ -40,8 +40,9 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 
 - 每页顶部一条概况栏（总数 / 在线 / 离线，消息页是总数 / 最近消息），四个页高度一致，
   切换标签不抖。
-- 进站先查 token：本地没有就 `location.replace('/auth')`；`/auth` 拿 token 换一次 `POST /api/auth`，
-  通过了存进 `localStorage` 再回首页。认证步骤至少 1 秒，这期间按钮是「校验中…」（自动校验时也一样）。
+- 进站先查会话：本地有会话就直接进主站（失效了主站会 401 把人送回 `/auth`），没有就去 `/auth`。
+  认证页把原始 `AUTH_TOKEN` 交给 `POST /api/auth`，换回一条会话 token 存进 `localStorage`，再回首页；
+  原始 token 不留浏览器。认证步骤至少 1 秒加一段随机抖动，这期间按钮是「校验中…」。
   主站与认证页共用一套主题与语言设置。
 - 主题：默认浅色，可切深色，记在 `localStorage`；≤560px 走卡片式布局。
 - 语言：默认按 `navigator.language`（`zh*` → 简体中文，其余 → English），顶栏可切换，记在
@@ -52,20 +53,22 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 除附件下载外一律 `application/json`；错误体统一是 `{"detail": "…"}`（按 `Accept-Language` 渲染好的文案），
 `/api/*` 下的 404 / 405 也是这个形状，405 带 `Allow`（`GET` 按 Go 的语义写成 `GET, HEAD`）。
 
-**鉴权**：除 `POST /api/auth` 外，所有 `/api/*` 都要 `Authorization: Bearer <AUTH_TOKEN>`。
-没带、格式不对、token 不对都是 `401` + `WWW-Authenticate: Bearer`，`detail` 按语言渲染；
-比较用恒定时间，token 只从环境变量来，盘上不落。静态资源（含 `/auth` 页）与 `/livez` `/readyz` 不受影响：
+**鉴权**：除 `POST /api/auth` 外，所有 `/api/*` 都要 `Authorization: Bearer <会话 token>`；
+原始 `AUTH_TOKEN` 只在登录那一次上路，不能当会话用。没带、格式不对、会话不对都是 `401` +
+`WWW-Authenticate: Bearer`，`detail` 按语言渲染。静态资源（含 `/auth` 页）与 `/livez` `/readyz` 不受影响：
 浏览器要能先打开认证页，kubelet 要能直接探。
 
-`POST /api/auth` 是**认证步骤**：至少花 1 秒（成功与失败一样），别让人拿它当高速试探口；
-请求级的 Bearer 校验只走一次 Argon2id（约 30 ms），不再叠这个下限——否则每个 API 调用、每次 SSE 重连都要等一秒。
+`POST /api/auth` 是**认证步骤**：原始 token 走 Argon2id 摘要校验，成功与失败都至少花 1 秒（再加 0–200 ms 抖动），
+别让人拿它当高速试探口；通过了才签一条会话 token 回去。
+会话 token 是 HMAC（密钥启动时随机生成，只在内存里），服务端只留它的 SHA-256，请求级校验就是一次摘要比较
+（微秒级），所以除登录外的每个请求都不再跑 Argon2id。
 
 响应头默认带 `Content-Language` + `Vary: Accept-Language`，以及 `X-Content-Type-Options: nosniff`、
 `Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`。
 
 | 方法         | 路径                                    | 说明                                                         |
 | ------------ | --------------------------------------- | ------------------------------------------------------------ |
-| `POST`       | `/api/auth`                             | 请求体里的 `token` 换 `{ok:true}`；认证步骤至少 1 秒，不对 `401`（唯一免鉴权的 /api 口） |
+| `POST`       | `/api/auth`                             | 原始 token 换一条会话：`{ok:true, token}`；至少 1 秒 + 抖动，不对 `401`（唯一免鉴权的 /api 口） |
 | `GET`        | `/api/status`                           | 当前共享快照；还没有快照时 `204`                             |
 | `GET`        | `/api/status?force=1`                   | 强制探一次再回                                               |
 | `GET`        | `/api/events`                           | SSE：先补一帧 `messages`，再推 `snapshot` / `messages`       |
@@ -258,13 +261,17 @@ data: {…快照，多一个 "reused": false…}
 
 - **一道门：`AUTH_TOKEN`**。除 `POST /api/auth` 外的每个 `/api/*` 请求都要
   `Authorization: Bearer <token>`。空值拒绝启动，不提供默认值——没设就等于把接口敞开。
-- **内存里只有摘要**：启动时读进来的 token 立刻过 Argon2id（`m=19 MiB, t=2, p=1`，盐随机，PHC 串），
+- **内存里只有原始 token 的摘要**：启动时读进来的 token 立刻过 Argon2id（`m=19 MiB, t=2, p=1`，盐随机，PHC 串），
   明文那份随 `loadEnv` 返回一起不可达，`api.Options` 里只有摘要；`os.Unsetenv("AUTH_TOKEN")` 顺手清掉环境变量，
   `ping` 这类子进程继承不到。每个请求把请求头里那份 token 用同一个盐再散一遍，`crypto/subtle` 恒定时间比较
   （一次约 30 ms、19 MiB，同并发最多 4 个哈希在算）。
   同机同用户的进程仍能从 `/proc/<pid>/environ` 读到原始 exec 环境块，真要躲开这一层就把 token 放 Secret / 一次性文件注入。
-- **认证步骤至少 1 秒**：`POST /api/auth` 无论成功失败都补足到 1 秒（`api.DefaultAuthFloor`，
-  用例里可注入更短的下限），快慢里读不出 token 对不对；请求级的 Bearer 校验不叠这个下限，只有一次 Argon2id。
+- **认证步骤至少 1 秒**：`POST /api/auth` 无论成功失败都补足到 `1s + 0–200 ms` 的随机等待
+  （`api.DefaultAuthFloor` / `authFloorJitter`，用例里可注入更短的下限），快慢里读不出原始 token 对不对。
+- **原始 token 只走一次**：登录验过后换成会话 token 回去，之后每个请求带的都是会话；
+  会话表只在内存里：HMAC 密钥与摘要都随进程消失，重启即全部失效，盘上没有任何会话痕迹。
+  会话是 256 位随机值，所以请求级校验用一次 SHA-256 摘要比较（恒定时间）就够，不必再跑 Argon2id。
+  服务端每个请求的审计日志只记 `client_ip` 与结果，token 一个字符都不进日志。
 - **界面是公开的**：`index.html` / `auth.html` / 静态资源不含数据，谁都拿得到；数据全在 `/api/*` 后面。
   浏览器进站先看 `localStorage` 里有没有 token，没有就去 `/auth`；任何 API 回 `401` 就清掉本地 token 并回认证页。
 - token 就存在 `localStorage` 里：页面用 Vue 的插值渲染消息，没有任何用户内容进 `innerHTML`，

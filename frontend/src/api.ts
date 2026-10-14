@@ -49,21 +49,17 @@ async function send(path: string, init: RequestInit): Promise<Response> {
   return response
 }
 
-/** 认证页用：拿一个 token 去问服务端认不认。通过返回 null，否则返回给用户看的文案。 */
-export async function verifyToken(token: string): Promise<string | null> {
-  let response: Response
-  try {
-    response = await fetch('/api/auth', {
-      method: 'POST',
-      headers: { 'Accept-Language': lang.value, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token }),
-      cache: 'no-store',
-    })
-  } catch (error) {
-    return errorMessage(error)
-  }
-  if (response.ok) return null
-  return (await errorFrom(response)).message
+/** 认证页用：拿原始 token 换一条会话 token；拿不到就抛 ApiError，页面把 detail 显示出来。 */
+export async function login(token: string): Promise<string> {
+  const response = await fetch('/api/auth', {
+    method: 'POST',
+    headers: { 'Accept-Language': lang.value, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+    cache: 'no-store',
+  })
+  if (!response.ok) throw await errorFrom(response)
+  const payload = (await response.json()) as { token?: string }
+  return payload.token ?? ''
 }
 
 /** 当前共享快照；还没有快照时服务端回 204，这里给 null。 */

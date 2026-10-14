@@ -5,13 +5,13 @@ const en: Record<I18nKey, string> = {
   'app.title': 'Scope Status',
 
   'auth.subtitle': 'This dashboard needs an access token',
-  'auth.label': 'Access token',
+  'auth.label': 'Access token (AUTH_TOKEN)',
   'auth.placeholder': 'paste the server AUTH_TOKEN',
   'auth.submit': 'Enter',
   'auth.checking': 'Checking…',
-  'auth.invalid': 'Wrong token, try again',
   'auth.failed': 'Check failed: {message}',
-  'auth.hint': 'The token is the server AUTH_TOKEN; it is kept in this browser only.',
+  'auth.noSession': 'the server returned no session, try again',
+  'auth.hint': 'The token is sent once at login. The browser keeps a server-issued session token, which dies with the server process.',
 
   'topbar.connecting': 'Connecting…',
   'topbar.notUpdated': 'No update yet',

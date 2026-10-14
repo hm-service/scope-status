@@ -2,7 +2,7 @@ import { createApp } from 'vue'
 import './style.css'
 import App from './App.vue'
 import * as api from './api'
-import { requireToken } from './auth'
+import { requireSession } from './auth'
 import { initApp, state } from './store'
 
 declare global {
@@ -14,8 +14,8 @@ declare global {
   }
 }
 
-// 进站先检查 token：本地没有就去 /auth，界面本身不带任何数据
-if (requireToken()) {
+// 进站先检查会话：本地没有就去 /auth，界面本身不带任何数据
+if (requireSession()) {
   initApp()
   createApp(App).mount('#app')
 

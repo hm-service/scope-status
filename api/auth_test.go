@@ -10,8 +10,9 @@ import (
 	"github.com/hm-service/scope-status/internal/testenv"
 )
 
-type authOK struct {
-	OK bool `json:"ok"`
+type authView struct {
+	OK    bool   `json:"ok"`
+	Token string `json:"token"`
 }
 
 // /api/* 一律要 Bearer token：缺、错、换个 scheme 都是 401 + WWW-Authenticate。
@@ -39,9 +40,15 @@ func TestAPINeedsBearerToken(t *testing.T) {
 		t.Fatalf("别的 scheme 应该 401，拿到 %d", other.status)
 	}
 
-	ok := callWith(t, env, env.RawClient, http.MethodGet, "/api/status?force=1", "", [2]string{"Authorization", "Bearer " + env.AuthToken})
+	// 原始 token 不是会话：除了登录口，哪儿都不认它
+	raw := callWith(t, env, env.RawClient, http.MethodGet, "/api/status", "", [2]string{"Authorization", "Bearer " + env.AuthToken})
+	if raw.status != http.StatusUnauthorized {
+		t.Fatalf("原始 token 不该当会话用，拿到 %d", raw.status)
+	}
+
+	ok := callWith(t, env, env.RawClient, http.MethodGet, "/api/status?force=1", "", [2]string{"Authorization", "Bearer " + env.SessionToken})
 	if ok.status != http.StatusOK {
-		t.Fatalf("token 对了应该 200，拿到 %d（%s）", ok.status, ok.body)
+		t.Fatalf("会话 token 应该 200，拿到 %d（%s）", ok.status, ok.body)
 	}
 }
 
@@ -72,18 +79,37 @@ func TestEveryAPIRouteIsGuarded(t *testing.T) {
 	}
 }
 
-// POST /api/auth 是登录口：拿请求体里的 token 换 ok，不对就是 401。
+// POST /api/auth 是登录口：拿请求体里的原始 token 换一条会话 token，不对就是 401。
 func TestAuthEndpoint(t *testing.T) {
 	env := testenv.New(t, testenv.DefaultSource)
 
 	ok := callWith(t, env, env.RawClient, http.MethodPost, "/api/auth", `{"token":"`+env.AuthToken+`"}`)
-	if ok.status != http.StatusOK || !decode[authOK](t, ok.body).OK {
+	if ok.status != http.StatusOK {
 		t.Fatalf("token 对了应该 200：%d（%s）", ok.status, ok.body)
+	}
+	issued := decode[authView](t, ok.body)
+	if !issued.OK || issued.Token == "" {
+		t.Fatalf("登录应该给一条会话 token：%+v", issued)
+	}
+	if strings.Contains(string(ok.body), env.AuthToken) {
+		t.Fatalf("响应里不该回显原始 token：%s", ok.body)
+	}
+	// 签出来的会话立刻可用；两条会话互不影响
+	used := callWith(t, env, env.RawClient, http.MethodGet, "/api/health", "", [2]string{"Authorization", "Bearer " + issued.Token})
+	if used.status != http.StatusOK {
+		t.Fatalf("新会话应该能用，拿到 %d（%s）", used.status, used.body)
+	}
+	again := decode[authView](t, callWith(t, env, env.RawClient, http.MethodPost, "/api/auth", `{"token":"`+env.AuthToken+`"}`).body)
+	if again.Token == issued.Token || again.Token == "" {
+		t.Fatalf("两次登录该签出不同的会话：%q / %q", issued.Token, again.Token)
 	}
 
 	wrong := callWith(t, env, env.RawClient, http.MethodPost, "/api/auth", `{"token":"nope"}`)
 	if wrong.status != http.StatusUnauthorized || !strings.Contains(string(wrong.body), "token 不对") {
 		t.Fatalf("token 不对应该 401：%d（%s）", wrong.status, wrong.body)
+	}
+	if token := decode[authView](t, wrong.body).Token; token != "" {
+		t.Fatalf("验不过就不该给会话：%q", token)
 	}
 	if got := wrong.header.Get("WWW-Authenticate"); got != "Bearer" {
 		t.Fatalf("WWW-Authenticate = %q", got)

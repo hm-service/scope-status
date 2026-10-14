@@ -11,7 +11,8 @@
 - 配置与状态都在 `DATA_DIR`：手写的 `<DATA_DIR>/source.yaml` + 消息 `<DATA_DIR>/messages`，挂一个卷就是全部。
 - 推送：只有 SSE，没有轮询；`GET /api/status` 读的是共享快照，恒定时间返回。
 - 文案：中英双语，前后端各一张表，未知键原样显示（漏配一眼可见）。
-- 鉴权只有一条：`AUTH_TOKEN` + `Authorization: Bearer`，进站先过认证页 `/auth`；token 读完就 Argon2id 散列，进程里只留摘要。
+- 鉴权只有一条：原始 `AUTH_TOKEN` 只在认证页用一次，换回一条会话 token；之后每个请求带的是会话。
+  原始 token 读完就 Argon2id 散列（进程里只留摘要），会话只在内存里（重启即失效）。
 - 依赖两个：`gopkg.in/yaml.v3`（`source.yaml` 是人手写的 YAML，标准库没有解析器）与
   `golang.org/x/crypto`（token 用 Argon2id 单向化，内存不存明文）；其余全走标准库。
 
@@ -26,7 +27,7 @@
 
 - 概况栏四个页面高度一致，切标签不抖；消息页显示「消息总数 / 最近消息」。
 - 浅色 / 深色主题、中英双语，都记在 `localStorage`；≤560px 走卡片式布局（顶栏收进 `⋯`）。
-- 进站先检查 token：本地没有就跳 `/auth`；401 时清掉本地 token 并回认证页重填。token 存在 `localStorage`，走 `Authorization: Bearer` 头（SSE 也一样，所以前端用 fetch 流自己分帧，不用 `EventSource`）。
+- 进站先检查会话：本地没有就跳 `/auth`；401（比如服务端重启过）就清掉会话并回认证页重新登录。会话存在 `localStorage`，走 `Authorization: Bearer` 头（SSE 也一样，所以前端用 fetch 流自己分帧，不用 `EventSource`）。
 - SSE 断线自动重连；顶栏显示推送状态与「服务端每 Ns 推一次」。
 - 拓扑图完全在前端算：`kind: cloud`（`cloud_servers` 块）进「中继基建」，WG 链路按 `core` 推，其余条目用双箭头接入。
 - 拓扑图支持缩放/平移：滚轮或 `+` / `−` 缩放（也可以双击/复位回适应宽度），按住拖动平移。
@@ -45,7 +46,8 @@ AUTH_TOKEN=改成你自己的口令 just run   # 构建前端 → 配置与数�
 ```
 
 打开 <http://127.0.0.1:8080/> 会先落到 `/auth`，把同一个 `AUTH_TOKEN` 粘进去即可。`AUTH_TOKEN` 是必填的，
-不设就直接拒绝启动（整个 `/api` 都靠它挡着）。
+不设就直接拒绝启动（整个 `/api` 都靠它挡着）。登录这一步至少花 1 秒，换来一条只活在本次进程里的会话；
+服务端一重启会话就失效，重新粘一次 `AUTH_TOKEN` 即可。
 
 等价的手工流程：
 
@@ -148,7 +150,7 @@ Vite 那边把 `/auth` 改写成 `auth.html`（线上是后端做的这件事）
 | `DATA_DIR` | `/data` | 数据目录：配置 `<DATA_DIR>/source.yaml` 与消息 `<DATA_DIR>/messages` |
 | `TZ` | 系统默认 | 时区，影响日志时间戳与消息文件名 |
 | `HOST` / `PORT` | `127.0.0.1` / `8080` | 监听地址与端口 |
-| `AUTH_TOKEN` | 无 | **必填**，`/api/*` 的 Bearer token；为空拒绝启动。启动时 Argon2id 散列，内存只留摘要 |
+| `AUTH_TOKEN` | 无 | **必填**，登录用的原始口令；为空拒绝启动。启动时 Argon2id 散列，内存只留摘要 |
 | `READYZ_TOKEN` | 空 | 非空时 `/readyz` 必须带 `?token=` |
 | `TRUSTED_PROXIES` | `127.0.0.1/32,::1/128` | 可信反代网段，决定真实客户端 IP 怎么取 |
 | `STREAM_INTERVAL` | `5` | SSE 循环探测间隔（秒）；`0` 表示不起循环、只在请求时探 |
@@ -164,20 +166,29 @@ Vite 那边把 `/auth` 改写成 `auth.html`（线上是后端做的这件事）
 接口清单、请求 / 响应字段、SSE 帧格式都在 [`DESIGN.md`](DESIGN.md#3-接口)。常用的几个：
 
 ```bash
-TOKEN=改成你自己的口令
-curl -s -H "Authorization: Bearer $TOKEN" localhost:8080/api/health | jq            # 运行状态与计数
-curl -s -H "Authorization: Bearer $TOKEN" 'localhost:8080/api/status?force=1' | jq  # 立刻探一次
-curl -sN -H "Authorization: Bearer $TOKEN" localhost:8080/api/events                # SSE：messages / snapshot / hello
-curl -s -X POST -H "Authorization: Bearer $TOKEN" localhost:8080/api/reload | jq .message
+AUTH_TOKEN=改成你自己的口令
+SESSION=$(curl -s -X POST -d "{\"token\":\"$AUTH_TOKEN\"}" localhost:8080/api/auth | jq -r .token)  # 登录，换会话
+curl -s -H "Authorization: Bearer $SESSION" localhost:8080/api/health | jq            # 运行状态与计数
+curl -s -H "Authorization: Bearer $SESSION" 'localhost:8080/api/status?force=1' | jq  # 立刻探一次
+curl -sN -H "Authorization: Bearer $SESSION" localhost:8080/api/events                # SSE：messages / snapshot / hello
+curl -s -X POST -H "Authorization: Bearer $SESSION" localhost:8080/api/reload | jq .message
 ```
 
 `/api/status` 不带参数时读的是后台循环维护的共享快照（恒定时间）；有 SSE 循环时在首帧探测完成前回 `204`，让前端等推送。服务端渲染的文案（探测详情、错误）跟随请求或 SSE 连接的 `Accept-Language`，响应头带 `Content-Language` 与 `Vary: Accept-Language`。
 
-除 `POST /api/auth`（拿 token 换 `{ok:true}`，认证页用它）外，每个 `/api/*` 都要 `Authorization: Bearer <AUTH_TOKEN>`，
-缺 / 错一律 `401` 并带 `WWW-Authenticate: Bearer`；`/`、`/auth`、静态资源、`/livez`、`/readyz` 不需要。
+除 `POST /api/auth` 外，每个 `/api/*` 都要 `Authorization: Bearer <会话 token>`；缺 / 错一律 `401` 并带
+`WWW-Authenticate: Bearer`；`/`、`/auth`、静态资源、`/livez`、`/readyz` 不需要。
 
-`POST /api/auth` 是认证步骤：**成功与失败都至少花 1 秒**（`api.DefaultAuthFloor`），别让人拿它当高速试探口；
-其余请求的 Bearer 校验只有一次 Argon2id（约 30 ms），不叠这个下限，看板才不至于每次调用都等一秒。
+`POST /api/auth` 是认证步骤：body 里放原始 `AUTH_TOKEN`，**成功与失败都至少花 1 秒**（`api.DefaultAuthFloor`，
+再加 0–200 ms 抖动），成功时回一条会话 token：
+
+```bash
+SESSION=$(curl -s -X POST -d "{\"token\":\"$AUTH_TOKEN\"}" localhost:8080/api/auth | jq -r .token)
+curl -s -H "Authorization: Bearer $SESSION" localhost:8080/api/health | jq
+```
+
+会话是 HMAC（密钥每次启动随机生成），服务端只留它的 SHA-256，所以后续请求的校验只是一次摘要比较；
+原始 token 不能当会话用，进程重启后所有会话失效，重新登录一次即可。
 
 `/api/*` 的错误体统一是 `{"detail": "…"}`（前端只读 `detail`），方法不对回 `405` 并带准的 `Allow`；所有响应带
 `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`。`/livez` 永远 200 且不记日志；
@@ -228,11 +239,11 @@ just check    # vet + test + 前端 vue-tsc
 
 | 包 | 覆盖率 | 说明 |
 | --- | --- | --- |
-| `main` | 34.6% | 环境变量校验：`AUTH_TOKEN` 必填、散列、清掉环境变量 |
-| `core` | 84.1% | 配置解析与校验、探测、消息标识、token 的 Argon2id 摘要 |
+| `main` | 33.6% | 环境变量校验：`AUTH_TOKEN` 必填、散列、清掉环境变量 |
+| `core` | 84.3% | 配置解析与校验、探测、消息标识、token 的 Argon2id 摘要、内存会话表 |
 | `store` | 72.7% | `source.yaml` 读取、消息与附件池读写 |
 | `app` | 73.2% | 探测循环、快照、广播、消息用例 |
-| `api` | 82.8% | 路由、Bearer 鉴权、SSE、消息接口、静态文件、探针 |
+| `api` | 82.7% | 路由、登录换会话、会话鉴权、SSE、消息接口、静态文件、探针 |
 | `i18n` | 87.1% | 语言协商与文案表 |
 | `httpx` | 55.1% | 响应小工具、客户端 IP、访问日志、安全头 |
 

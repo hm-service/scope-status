@@ -17,6 +17,7 @@ import (
 )
 
 // DefaultAuthFloor 是认证步骤的时间下限：验 token 不能秒回，成功与失败都一样。
+// 实际等待是下限加一段随机抖动，见 authFloorJitter。
 const DefaultAuthFloor = time.Second
 
 type Options struct {
@@ -26,6 +27,7 @@ type Options struct {
 	TrustedProxies       []netip.Prefix
 	ReadyzToken          string
 	AuthTokenHash        string
+	Sessions             *core.Sessions
 	AuthFloor            time.Duration
 	MaxAPIConcurrency    int
 	MaxStaticConcurrency int

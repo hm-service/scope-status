@@ -3,6 +3,8 @@
 package testenv
 
 import (
+	"bytes"
+	"encoding/json"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -51,16 +53,17 @@ type Options struct {
 }
 
 type Env struct {
-	T          *testing.T
-	DataDir    string
-	SourceFile string
-	App        *app.App
-	Server     *httptest.Server
-	BaseURL    string
-	AuthToken  string
-	Client     *http.Client
-	RawClient  *http.Client
-	Logger     *slog.Logger
+	T            *testing.T
+	DataDir      string
+	SourceFile   string
+	App          *app.App
+	Server       *httptest.Server
+	BaseURL      string
+	AuthToken    string
+	SessionToken string
+	Client       *http.Client
+	RawClient    *http.Client
+	Logger       *slog.Logger
 }
 
 func New(t *testing.T, source string) *Env {
@@ -100,6 +103,11 @@ func NewWith(t *testing.T, source string, opts Options) *Env {
 	if err != nil {
 		t.Fatalf("散列测试 token 失败：%v", err)
 	}
+	// 会话表：测试实例也是启动时生成一把随机密钥，重启（新实例）即失效
+	sessions, err := core.NewSessions()
+	if err != nil {
+		t.Fatalf("建会话表失败：%v", err)
+	}
 	static := opts.Static
 	if static == nil {
 		static = Static()
@@ -116,6 +124,7 @@ func NewWith(t *testing.T, source string, opts Options) *Env {
 		TrustedProxies:       nil,
 		ReadyzToken:          opts.ReadyzToken,
 		AuthTokenHash:        authTokenHash,
+		Sessions:             sessions,
 		AuthFloor:            authFloor,
 		MaxAPIConcurrency:    8,
 		MaxStaticConcurrency: 4,
@@ -123,18 +132,45 @@ func NewWith(t *testing.T, source string, opts Options) *Env {
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 	const timeout = 10 * time.Second
+	// 会话只能登录换：测试也走一遍 POST /api/auth，别去开后门
+	sessionToken := login(t, server.URL, authToken)
 	return &Env{
-		T:          t,
-		DataDir:    dataDir,
-		SourceFile: sourceFile,
-		App:        application,
-		Server:     server,
-		BaseURL:    server.URL,
-		AuthToken:  authToken,
-		Client:     &http.Client{Timeout: timeout, Transport: &authTransport{token: authToken}},
-		RawClient:  &http.Client{Timeout: timeout},
-		Logger:     logger,
+		T:            t,
+		DataDir:      dataDir,
+		SourceFile:   sourceFile,
+		App:          application,
+		Server:       server,
+		BaseURL:      server.URL,
+		AuthToken:    authToken,
+		SessionToken: sessionToken,
+		Client:       &http.Client{Timeout: timeout, Transport: &authTransport{token: sessionToken}},
+		RawClient:    &http.Client{Timeout: timeout},
+		Logger:       logger,
 	}
+}
+
+// login 拿原始 token 换一条会话 token。
+func login(t *testing.T, baseURL, authToken string) string {
+	t.Helper()
+	body, err := json.Marshal(map[string]string{"token": authToken})
+	if err != nil {
+		t.Fatalf("造登录请求失败：%v", err)
+	}
+	response, err := http.Post(baseURL+"/api/auth", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("登录失败：%v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("登录状态码 = %d", response.StatusCode)
+	}
+	var payload struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil || payload.Token == "" {
+		t.Fatalf("登录响应里没有会话 token：%v", err)
+	}
+	return payload.Token
 }
 
 // authTransport 给每个请求补上 Authorization: Bearer；调用方自己设了就不覆盖。
