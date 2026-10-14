@@ -299,7 +299,7 @@ func (m *Monitor) Unsubscribe(sub *subscriber) {
 }
 
 type addressJob struct {
-	friend  int
+	peer    int
 	address string
 }
 
@@ -309,10 +309,10 @@ func (m *Monitor) collect() (*core.Snapshot, error) {
 	started := time.Now()
 	probe := source.Probe
 
-	jobs := make([]addressJob, 0, len(source.Friends))
-	for index, friend := range source.Friends {
-		for _, address := range friend.Addresses {
-			jobs = append(jobs, addressJob{friend: index, address: address})
+	jobs := make([]addressJob, 0, len(source.Peers))
+	for index, peer := range source.Peers {
+		for _, address := range peer.Addresses {
+			jobs = append(jobs, addressJob{peer: index, address: address})
 		}
 	}
 	addressResults := make([]core.ProbeResult, len(jobs))
@@ -375,18 +375,18 @@ func (m *Monitor) collect() (*core.Snapshot, error) {
 		return nil, collectErr
 	}
 
-	byFriend := make([][]core.ProbeResult, len(source.Friends))
+	byPeer := make([][]core.ProbeResult, len(source.Peers))
 	for index, job := range jobs {
-		byFriend[job.friend] = append(byFriend[job.friend], addressResults[index])
+		byPeer[job.peer] = append(byPeer[job.peer], addressResults[index])
 	}
 
-	friends := make([]core.FriendStatus, len(source.Friends))
-	friendsOnline := 0
-	for index, friend := range source.Friends {
-		status := core.FriendStatus{
-			Friend:    friend,
-			Addresses: byFriend[index],
-			LatencyMs: core.BestLatency(byFriend[index]),
+	peers := make([]core.PeerStatus, len(source.Peers))
+	peersOnline := 0
+	for index, peer := range source.Peers {
+		status := core.PeerStatus{
+			Peer:      peer,
+			Addresses: byPeer[index],
+			LatencyMs: core.BestLatency(byPeer[index]),
 		}
 		for _, result := range status.Addresses {
 			if result.Online() {
@@ -395,9 +395,9 @@ func (m *Monitor) collect() (*core.Snapshot, error) {
 			}
 		}
 		if status.Online {
-			friendsOnline++
+			peersOnline++
 		}
-		friends[index] = status
+		peers[index] = status
 	}
 
 	services := make([]core.ServiceStatus, len(source.Services))
@@ -444,9 +444,9 @@ func (m *Monitor) collect() (*core.Snapshot, error) {
 		Reloadable:      m.sourcePath != "",
 		ReloadCount:     m.ReloadCount(),
 		StreamInterval:  m.streamInterval.Seconds(),
-		Summary:         core.NewSummary(len(friends), friendsOnline),
-		Groups:          core.GroupFriends(source, friends),
-		Friends:         friends,
+		Summary:         core.NewSummary(len(peers), peersOnline),
+		Groups:          core.GroupPeers(source, peers),
+		Peers:           peers,
 		Services:        services,
 		ServicesGroups:  core.GroupServices(source, services),
 		ServicesSummary: core.NewSummary(len(services), servicesOnline),

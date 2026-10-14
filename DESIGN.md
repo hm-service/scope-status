@@ -69,7 +69,7 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 | `GET`        | `/readyz?token=`                        | 依赖就绪（配置已载入、数据目录可写）才 `200`，记一条审计日志 |
 | `GET`        | `/` 及其余路径                          | 内嵌前端产物；未知 `/api/*` 回 `404` JSON                    |
 
-`POST /api/reload` 成功时回 `{ok, message, friends, services, links, reloadCount, sourcePath, snapshot}`：
+`POST /api/reload` 成功时回 `{ok, message, peers, services, links, reloadCount, sourcePath, snapshot}`：
 `message` 是服务端按 `Accept-Language` 渲染好的一句提示，`snapshot` 就是下面那份快照（`reused: false`）。
 失败时回 `500`，`detail` 就是配置校验的报错原文，旧配置继续生效。
 
@@ -90,11 +90,10 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
   "summary": { "total": 3, "online": 2, "offline": 1 },
   "groups": [
     {
-      "id": "friend", "label": "朋友", "order": 0, "total": 2, "online": 1,
-      "friends": [
+      "id": "friend", "label": "朋友", "order": 10, "total": 1, "online": 1,
+      "peers": [
         {
-          "name": "小明", "note": null, "category": "friend", "online": true,
-          "latencyMs": 12.4,
+          "name": "小明", "note": null, "kind": "friend", "online": true, "latencyMs": 12.4,
           "addresses": [
             { "address": "10.0.0.2", "status": "up", "latencyMs": 12.4, "detail": null, "method": "icmp" }
           ],
@@ -103,7 +102,17 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
       ]
     }
   ],
-  "friends": [],
+  "peers": [
+    {
+      "name": "小明", "note": null, "kind": "friend", "online": true, "latencyMs": 12.4,
+      "addresses": [], "properties": { "面板账号": "example-pass" }
+    },
+    {
+      "name": "云服务器-0", "note": null, "kind": "cloud", "online": true, "latencyMs": 7.1,
+      "core": true, "private": ["10.0.0.1"], "public": ["203.0.113.10"], "wgPeers": ["云服务器-1"],
+      "addresses": [], "properties": {}
+    }
+  ],
   "services": [
     {
       "name": "MC 服务器", "host": "10.0.0.9", "port": 25565, "address": "10.0.0.9:25565",
@@ -125,8 +134,11 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 }
 ```
 
-- `friends` 是扁平的全量列表，`groups` 是按 `category` 分好组的同一批对象；`services` /
-  `servicesGroups` 同理。
+- `peers` 是扁平的全量列表（`peers:` 块和 `cloud_servers:` 块解析完并在一起），`groups` 是按分好组的
+  同一批对象；`services` / `servicesGroups` 同理。
+- `kind` 只有三个值：`friend` / `server`（配置里写）/ `cloud`（来自 `cloud_servers` 块）。
+  `core` / `private` / `public` / `wgPeers` 只有 `kind = cloud` 才有，其余条目不会出现这些键。
+  `wgPeers` 是服务端按 `core` 推出来的（主干 ↔ 其余每一台，两边都给对端名字），配置里不用写。
 - 网站图标（`faviconUrl`）**异步**抓：`For` 只读缓存，未命中就丢给后台（同 origin 只抓一次），
   所以某一帧里它可能是 `null`，下一帧补上——抓图标最慢要十几秒，不能挂在探测的关键路径上。
 - `status` 只有 `up` / `down`；判不出结论（没有 `ping`、域名解析不了）时整个探测报错，
@@ -157,16 +169,22 @@ data: {…快照，多一个 "reused": false…}
 这份文件是本机手写的，里面通常有密码，所以整个数据目录都不入库；入库的只有 `source.example.yaml` 这份示例。
 路径固定成 `DATA_DIR` 根下的 `source.yaml`，名字不再是可配置项。
 
-顶层 mapping，四块：`friends` / `services` / `links` / `categories`（`probe`、`title` 可选）。
-顶层直接写数组等价于 `friends`。字符串字段一律要求非空，类型不对就报错，不猜、不转换。
+顶层 mapping，五块：`cloud_servers` / `peers` / `services` / `links`（`probe`、`title` 可选）。
+顶层直接写数组等价于 `peers`。字符串字段一律要求非空，类型不对就报错，不猜、不转换；字段名只有表里这一种
+写法，不认别名（历史别名一律删掉，不做向后兼容）。分组不用声明：`peers` 按 `kind` 走内置名字
+（朋友 / 服务器），`cloud_servers` 固定进「云服务器」，`services` 用 `category`（没写就是内置「服务」）。
 
 | 字段            | 适用     | 约束                                                                       |
 | --------------- | -------- | -------------------------------------------------------------------------- |
-| `name`          | 三者     | 非空字符串，同一页内不要求唯一                                             |
-| `addresses`     | friends  | 非空数组，每项 IP 或域名（可带 `:端口`），去重                             |
-| `category`      | 三者     | 字符串，转小写、空格转 `-`；缺省 `friend` / 服务是 `service`               |
-| `properties`    | 三者     | 名称 → 值的映射，按书写顺序展示；值可以是数字、布尔                        |
-| `note`          | friends  | 备注                                                                       |
+| `name`          | peers / cloud_servers / services / links | 非空字符串，同一页内不要求唯一                |
+| `kind`          | peers    | **必填**，`friend` 或 `server`；决定图标与分组                             |
+| `addresses`     | peers    | 非空数组，每项 IP 或域名（可带 `:端口`），去重                             |
+| `note`          | peers / cloud_servers | 备注                                                             |
+| `properties`    | 四者     | 名称 → 值的映射，按书写顺序展示；值可以是数字、布尔                        |
+| `private`       | cloud_servers | 隧道内地址数组，可写多个；和 `public` 至少要有一个                      |
+| `public`        | cloud_servers | 公网入口地址数组，可写多个                                             |
+| `core`          | cloud_servers | 布尔；`true` = WG 主干，整个文件最多一个；WG 链路按它推：主干 ↔ 其余每一台 |
+| `category`      | services | 分组名（转小写、空格转 `-`）；不写就进内置「服务」组                       |
 | `host` `port`   | services | `host` 非空；`port` 1–65535                                                |
 | `protocol`      | services | `udp` / `tcp` / `a2s`                                                      |
 | `connect_cmd`   | services | 可复制的连接命令                                                           |
@@ -174,9 +192,29 @@ data: {…快照，多一个 "reused": false…}
 | `probe_url`     | links    | 探测地址；不写就探 `url`                                                   |
 | `expect_status` | links    | 视为「通」的 HTTP 状态码，默认 `200`                                       |
 | `probe`         | 顶层     | `method`（`icmp`/`tcp`/`http`）、`timeout`、`port`、`concurrency`、`count` |
-| `categories`    | 顶层     | `[{id, label, order}]`；没声明的分类用内置名字补齐                         |
 
-### 4.2. `DATA_DIR/messages`
+`cloud_servers` 里的条目解析完会**并进 `peers` 列表**（`kind = cloud`），所以探测、分组、摘要、
+表格、拓扑图都走同一条路；`private` + `public` 两个数组拼起来就是它的待探测地址。
+
+### 4.2. 拓扑图
+
+状态页最上面是一张从 `peers` 现算的 SVG（前端算，后端不掺和），分两层：
+
+- **中继基建**：一个容器，里面只摆 `kind = cloud` 的条目（也就是 `cloud_servers` 块）。
+  相连的两台之间牵金色双线：链路由后端按 `core` 推好（主干 ↔ 其余每一台，两边都给 `wgPeers`），
+  前端只做无向去重，不臆造。
+- **接入节点**：其余条目用双箭头接进容器（服务器类的接上边缘、朋友等接下边缘），
+  箭头颜色 = 该条目各地址的汇总状态（全通绿、部分通金、全断红虚线）。
+
+`core: true` 的那台会画得更大：虚线底色板 + 更粗的描边 + 「核心中继」徽标 + 一行 `WG 主干 → …`。
+类型图标按 `kind` 走（人 / 机架 / 云朵），子网配色按 /24 前缀分配。
+配色与文案都跟着主题和语言走。
+
+图放在一个**画布**里，不跟着正文列宽把字缩小：默认按「适应宽度」显示（约 81%），
+滚轮或 `+` / `−` 缩放（50%–400%），按住拖动平移，双击或「复位」回到适应宽度；
+滚轮已经缩到最小还继续往下滚时不再拦截，让页面正常滚动。窄屏最少按 55% 画，宁可横向拖也不缩成蚂蚁。
+
+### 4.3. `DATA_DIR/messages`
 
 盘上只有两样东西，不分消息类型：
 

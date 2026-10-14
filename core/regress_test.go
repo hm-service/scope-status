@@ -19,13 +19,13 @@ func TestRegressEmptyConfig(t *testing.T) {
 	}
 }
 
-// 回归：`friends:` 后面什么都没写是空列表，不是类型错误。
+// 回归：`peers:` 后面什么都没写是空列表，不是类型错误。
 func TestRegressEmptySections(t *testing.T) {
-	source, err := ParseSource("test.yaml", []byte("friends:\nservices:\nlinks:\ncategories:\n"))
+	source, err := ParseSource("test.yaml", []byte("peers:\nservices:\nlinks:\n"))
 	if err != nil {
 		t.Fatalf("空字段不该报错：%v", err)
 	}
-	if len(source.Friends) != 0 || len(source.Services) != 0 || len(source.Links) != 0 {
+	if len(source.Peers) != 0 || len(source.Services) != 0 || len(source.Links) != 0 {
 		t.Fatalf("空字段应该解析成空列表：%+v", source)
 	}
 }
@@ -48,11 +48,11 @@ func TestRegressRootPathAsFileName(t *testing.T) {
 
 // 回归：带端口的地址只校验主机部分，端口写错字交给探测层兜（与配置文件的历史行为一致）。
 func TestRegressAddressWithNonNumericPort(t *testing.T) {
-	source, err := ParseSource("test.yaml", []byte("friends:\n  - name: 小明\n    addresses: [\"10.0.0.1:abc\"]\n"))
+	source, err := ParseSource("test.yaml", []byte("peers:\n  - name: 小明\n    kind: friend\n    addresses: [\"10.0.0.1:abc\"]\n"))
 	if err != nil {
 		t.Fatalf("主机合法就该过：%v", err)
 	}
-	if source.Friends[0].Addresses[0] != "10.0.0.1:abc" {
-		t.Fatalf("地址被改写了：%v", source.Friends[0].Addresses)
+	if source.Peers[0].Addresses[0] != "10.0.0.1:abc" {
+		t.Fatalf("地址被改写了：%v", source.Peers[0].Addresses)
 	}
 }

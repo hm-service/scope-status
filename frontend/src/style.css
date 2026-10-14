@@ -15,7 +15,15 @@
   --up: #16835d;
   --down: #b94b47;
   --warn: #9a6512;
+  --warn-soft: #fdf3e0;
   --hover: #f7f9fc;
+  /* 拓扑图专用：条目类型与子网配色，保证三套主题下都区分得开 */
+  --topo-friend: #2563eb;
+  --topo-server: #c2760b;
+  --topo-cloud: #7c3aed;
+  --topo-net-1: #3563dc;
+  --topo-net-2: #8b5cf6;
+  --topo-net-3: #0d9488;
 }
 
 :root[data-theme="dark"] {
@@ -32,7 +40,14 @@
   --up: #3fb98a;
   --down: #e2645f;
   --warn: #d2a24c;
+  --warn-soft: #2c2820;
   --hover: #20252d;
+  --topo-friend: #7aa2ff;
+  --topo-server: #e0a34a;
+  --topo-cloud: #b39bff;
+  --topo-net-1: #6f97ff;
+  --topo-net-2: #a78bfa;
+  --topo-net-3: #2dd4bf;
 }
 
 * { box-sizing: border-box; }
@@ -817,3 +832,93 @@ main { padding-bottom: 8px; }
   }
   .link-back { margin-bottom: -4px; }
 }
+
+/* ---------- 拓扑图 ---------- */
+
+.topo {
+  margin: 0 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.topo-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.topo-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+.topo-title { color: var(--text); font-weight: 600; }
+.topo-count { font-variant-numeric: tabular-nums; }
+.topo.is-collapsed .group-chevron { transform: rotate(-90deg); }
+
+.topo-tools { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+
+.topo-tool {
+  min-width: 26px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.topo-tool:hover { background: var(--hover); }
+.topo-tool:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.topo-tool-text { font-size: 12.5px; color: var(--muted); }
+.topo-zoom { min-width: 48px; text-align: center; font-variant-numeric: tabular-nums; font-size: 12px; }
+
+.topo-body { padding: 0 14px 12px; }
+
+.topo-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 16px;
+  padding: 2px 0 10px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.topo-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.topo-legend-item svg { display: block; }
+
+/* 图例里的小样例：WG 双线、核心中继底板、三种接入状态 */
+.topo-sample { display: inline-block; width: 20px; height: 4px; border-radius: 2px; }
+.topo-sample-wg { background: var(--warn); box-shadow: inset 0 0 0 1.2px var(--panel); }
+.topo-sample-core { width: 15px; height: 15px; border-radius: 5px; border: 1.4px dashed var(--accent); background: var(--accent-soft); }
+.topo-sample-up { height: 0; border-top: 2px solid var(--up); }
+.topo-sample-partial { height: 0; border-top: 2px solid var(--warn); }
+.topo-sample-down { height: 0; border-top: 2px dashed var(--down); }
+
+/* 画布：滚轮/按钮缩放，拖动平移 */
+.topo-canvas {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  cursor: grab;
+  touch-action: pan-y;
+  /* 画布上不许选字：拖动要平移，选中高亮在缩放过的层里还会错位 */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.topo-canvas.is-dragging { cursor: grabbing; }
+.topo-canvas.is-dragging .topo-stage { will-change: transform; }
+.topo-stage { position: absolute; top: 0; left: 0; }
+.topo-stage svg { display: block; width: 100%; height: 100%; }
+
+.topo-note { margin: 8px 0 0; color: var(--muted); font-size: 11.5px; }

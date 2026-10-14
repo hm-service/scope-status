@@ -14,7 +14,7 @@ import (
 
 type healthView struct {
 	Status         string             `json:"status"`
-	Friends        int                `json:"friends"`
+	Peers          int                `json:"peers"`
 	Services       int                `json:"services"`
 	Links          int                `json:"links"`
 	Categories     []string           `json:"categories"`
@@ -32,7 +32,7 @@ type healthView struct {
 type reloadView struct {
 	OK          bool   `json:"ok"`
 	Message     string `json:"message"`
-	Friends     int    `json:"friends"`
+	Peers       int    `json:"peers"`
 	Services    int    `json:"services"`
 	Links       int    `json:"links"`
 	ReloadCount int    `json:"reloadCount"`
@@ -70,8 +70,8 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 	lang := langOf(r)
 	httpx.JSON(w, http.StatusOK, reloadView{
 		OK:      true,
-		Message: i18n.T(lang, i18n.KeyReloadOK, len(source.Friends), len(source.Services), len(source.Links)),
-		Friends: len(source.Friends), Services: len(source.Services), Links: len(source.Links),
+		Message: i18n.T(lang, i18n.KeyReloadOK, len(source.Peers), len(source.Services), len(source.Links)),
+		Peers:   len(source.Peers), Services: len(source.Services), Links: len(source.Links),
 		ReloadCount: s.opts.App.Monitor.ReloadCount(),
 		SourcePath:  s.opts.App.Monitor.SourcePath(),
 		Snapshot:    SnapshotView(snapshot, lang, false),
@@ -92,7 +92,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.JSON(w, http.StatusOK, healthView{
 		Status:         "ok",
-		Friends:        len(source.Friends),
+		Peers:          len(source.Peers),
 		Services:       len(source.Services),
 		Links:          len(source.Links),
 		Categories:     categories,

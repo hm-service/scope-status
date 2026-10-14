@@ -6,30 +6,30 @@ import (
 	"github.com/hm-service/scope-status/i18n"
 )
 
-func friendStatuses(categories []string, online []bool) []FriendStatus {
-	statuses := make([]FriendStatus, 0, len(categories))
+func peerStatuses(categories []string, online []bool) []PeerStatus {
+	statuses := make([]PeerStatus, 0, len(categories))
 	for index, category := range categories {
-		statuses = append(statuses, FriendStatus{
-			Friend: Friend{Name: category, Category: category, Index: index},
+		statuses = append(statuses, PeerStatus{
+			Peer:   Peer{Name: category, Category: category, Index: index},
 			Online: online[index],
 		})
 	}
 	return statuses
 }
 
-func TestGroupFriendsOrderAndCounts(t *testing.T) {
+func TestGroupPeersOrderAndCounts(t *testing.T) {
 	source := &Source{Categories: []Category{
 		{ID: "server", Label: "服务器", Order: 2},
-		{ID: "friend", Label: "朋友", Order: 1},
+		{ID: "peer", Label: "对端", Order: 1},
 	}}
-	groups := GroupFriends(source, friendStatuses(
-		[]string{"friend", "server", "friend", "friend"},
+	groups := GroupPeers(source, peerStatuses(
+		[]string{"peer", "server", "peer", "peer"},
 		[]bool{true, false, false, true},
 	))
 	if len(groups) != 2 {
 		t.Fatalf("分组数 = %d", len(groups))
 	}
-	if groups[0].Category.ID != "friend" || groups[0].Total != 3 || groups[0].Online != 2 {
+	if groups[0].Category.ID != "peer" || groups[0].Total != 3 || groups[0].Online != 2 {
 		t.Fatalf("第一组不对：%+v", groups[0])
 	}
 	if len(groups[0].Members) != 3 || groups[0].Members[0] != 0 || groups[0].Members[2] != 3 {
@@ -40,13 +40,13 @@ func TestGroupFriendsOrderAndCounts(t *testing.T) {
 	}
 }
 
-func TestGroupFriendsUndefinedCategory(t *testing.T) {
+func TestGroupPeersUndefinedCategory(t *testing.T) {
 	source := &Source{}
-	groups := GroupFriends(source, friendStatuses([]string{"nas"}, []bool{true}))
+	groups := GroupPeers(source, peerStatuses([]string{"nas"}, []bool{true}))
 	if len(groups) != 1 {
 		t.Fatalf("分组数 = %d", len(groups))
 	}
-	if groups[0].Category.Render(i18n.Zh) != "NAS / 存储" || groups[0].Category.Order != 100 {
+	if groups[0].Category.Render(i18n.Zh) != "NAS / 存储" || groups[0].Category.Order != 50 {
 		t.Fatalf("没声明的分类应该落到内置名字：%+v", groups[0].Category)
 	}
 }

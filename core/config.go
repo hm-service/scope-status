@@ -18,7 +18,6 @@ import (
 )
 
 const (
-	DefaultCategory = "friend"
 	ServiceCategory = "service"
 
 	ProtocolUDP = "udp"
@@ -31,6 +30,12 @@ const (
 
 	StatusUp   = "up"
 	StatusDown = "down"
+
+	// 条目类型：peers 只能写 friend / server；cloud 是 cloud_servers 块专用的值，
+	// 解析时会并进 peers 列表，前端按它认「中继基建」里的机器。
+	KindFriend = "friend"
+	KindServer = "server"
+	KindCloud  = "cloud"
 )
 
 // Property 是端点属性的一项，保留配置文件里的书写顺序。
@@ -92,19 +97,30 @@ func (c Category) Render(lang i18n.Lang) string {
 	return c.ID
 }
 
+// 分组顺序写死在这儿：配置里不用再维护 categories 块。
+var builtinOrders = map[string]int{
+	"friend": 10, "server": 20, "cloud": 30, "service": 40,
+	"nas": 50, "router": 60, "iot": 70, "work": 80, "other": 90,
+}
+
+func builtinCategory(id string) Category {
+	order, ok := builtinOrders[id]
+	if !ok {
+		order = 100
+	}
+	return Category{ID: id, LabelKey: builtinLabels[id], Order: order}
+}
+
 var builtinLabels = map[string]i18n.Key{
 	"friend":  i18n.KeyCategoryFriend,
 	"service": i18n.KeyCategoryService,
 	"server":  i18n.KeyCategoryServer,
+	"cloud":   i18n.KeyCategoryCloud,
 	"nas":     i18n.KeyCategoryNAS,
 	"router":  i18n.KeyCategoryRouter,
 	"iot":     i18n.KeyCategoryIoT,
 	"work":    i18n.KeyCategoryWork,
 	"other":   i18n.KeyCategoryOther,
-}
-
-func builtinCategory(id string) Category {
-	return Category{ID: id, LabelKey: builtinLabels[id], Order: 100}
 }
 
 type ProbeConfig struct {
@@ -119,13 +135,21 @@ func DefaultProbeConfig() ProbeConfig {
 	return ProbeConfig{Method: MethodICMP, Timeout: 2 * time.Second, Port: 80, Concurrency: 16, Count: 1}
 }
 
-type Friend struct {
+// Peer 是「会被探测的一个条目」：peers 块和 cloud_servers 块解析完都长这样。
+// Kind 区分 friend / server / cloud；Category 直接等于 Kind（分组走内置名字与顺序）。
+type Peer struct {
 	Name       string
 	Note       *string
+	Kind       string
 	Category   string
 	Addresses  []string
 	Properties Properties
 	Index      int
+
+	// 只有 kind = cloud 才有：core 是 WG 主干，private / public 分开记，便于展示与探测。
+	Core    bool
+	Private []string
+	Public  []string
 }
 
 type Service struct {
@@ -162,7 +186,7 @@ type Source struct {
 	TitleKey   i18n.Key
 	Probe      ProbeConfig
 	Categories []Category
-	Friends    []Friend
+	Peers      []Peer
 	Services   []Service
 	Links      []Link
 }
@@ -186,7 +210,7 @@ func (s *Source) Category(id string) Category {
 	return builtinCategory(id)
 }
 
-// ParseSource 解析配置文件的内容；顶层数组等价于 friends 列表。
+// ParseSource 解析配置文件的内容；顶层数组等价于 peers 列表。
 func ParseSource(name string, data []byte) (*Source, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
@@ -204,7 +228,7 @@ func ParseSource(name string, data []byte) (*Source, error) {
 	}
 	if root.Kind == yaml.SequenceNode {
 		root = &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{
-			{Kind: yaml.ScalarNode, Tag: "!!str", Value: "friends"},
+			{Kind: yaml.ScalarNode, Tag: "!!str", Value: "peers"},
 			root,
 		}}
 	}
@@ -237,20 +261,21 @@ func ParseSource(name string, data []byte) (*Source, error) {
 		source.Probe = probe
 	}
 
-	if node := pairs.get("categories"); !isNull(node) {
-		categories, err := parseCategories(node)
+	if node := pairs.get("peers"); !isNull(node) {
+		peers, err := parsePeers(node)
 		if err != nil {
 			return nil, err
 		}
-		source.Categories = categories
+		source.Peers = peers
 	}
 
-	if node := pairs.get("friends", "Friends"); !isNull(node) {
-		friends, err := parseFriends(node)
+	// 云服务器并进 peers 列表（kind = cloud）：探测、分组、摘要都走同一条路。
+	if node := pairs.get("cloud_servers"); !isNull(node) {
+		clouds, err := parseCloudServers(node, len(source.Peers))
 		if err != nil {
 			return nil, err
 		}
-		source.Friends = friends
+		source.Peers = append(source.Peers, clouds...)
 	}
 
 	if node := pairs.get("services"); !isNull(node) {
@@ -269,32 +294,39 @@ func ParseSource(name string, data []byte) (*Source, error) {
 		source.Links = links
 	}
 
-	source.Categories = completeCategories(source.Categories, source.Friends, source.Services)
+	source.Categories = usedCategories(source.Peers, source.Services)
 	return source, nil
 }
 
-// completeCategories 给配置里没声明、但被用到的分类补上内置名字，避免前端丢组。
-func completeCategories(categories []Category, friends []Friend, services []Service) []Category {
-	declared := make(map[string]bool, len(categories))
-	for _, category := range categories {
-		declared[category.ID] = true
-	}
-	used := make([]string, 0, len(friends)+len(services))
-	for _, friend := range friends {
-		used = append(used, friend.Category)
-	}
-	for _, service := range services {
-		used = append(used, service.Category)
-	}
-	for _, id := range used {
-		if declared[id] {
+// usedCategories 收集用到的分类，配内置名字与顺序（内置表里没有的原样当组名）。
+func usedCategories(peers []Peer, services []Service) []Category {
+	seen := make(map[string]bool, len(peers)+len(services))
+	categories := make([]Category, 0, len(peers)+len(services))
+	for _, id := range append(peerCategories(peers), serviceCategories(services)...) {
+		if id == "" || seen[id] {
 			continue
 		}
-		declared[id] = true
+		seen[id] = true
 		categories = append(categories, builtinCategory(id))
 	}
 	sortCategories(categories)
 	return categories
+}
+
+func peerCategories(peers []Peer) []string {
+	ids := make([]string, 0, len(peers))
+	for _, peer := range peers {
+		ids = append(ids, peer.Category)
+	}
+	return ids
+}
+
+func serviceCategories(services []Service) []string {
+	ids := make([]string, 0, len(services))
+	for _, service := range services {
+		ids = append(ids, service.Category)
+	}
+	return ids
 }
 
 func sortCategories(categories []Category) {
@@ -362,77 +394,30 @@ func parseProbe(node *yaml.Node) (ProbeConfig, error) {
 	return probe, nil
 }
 
-func parseCategories(node *yaml.Node) ([]Category, error) {
+func parsePeers(node *yaml.Node) ([]Peer, error) {
 	if node.Kind != yaml.SequenceNode {
-		return nil, ConfigError(i18n.KeyConfigCategoriesNotList)
+		return nil, ConfigError(i18n.KeyConfigPeersNotList)
 	}
-	categories := make([]Category, 0, len(node.Content))
+	peers := make([]Peer, 0, len(node.Content))
 	for index, item := range node.Content {
 		if item.Kind != yaml.MappingNode {
-			return nil, ConfigError(i18n.KeyConfigCategoryNotObject, index)
+			return nil, ConfigError(i18n.KeyConfigPeerNotObject, index)
 		}
-		pairs, err := mapPairs(item, "categories")
-		if err != nil {
-			return nil, err
-		}
-		idNode := pairs.get("id", "name", "key")
-		if idNode == nil {
-			return nil, ConfigError(i18n.KeyConfigCategoryID, index)
-		}
-		id, err := wantString(idNode, i18n.KeyConfigCategoryID, index)
-		if err != nil {
-			return nil, err
-		}
-		id = slug(id)
-		if id == "" {
-			return nil, ConfigError(i18n.KeyConfigCategoryID, index)
-		}
-		category := Category{ID: id, Order: 100 + index}
-		if labelNode := pairs.get("label", "title"); labelNode != nil {
-			label, err := wantString(labelNode, i18n.KeyConfigCategoryLabel, index)
-			if err != nil {
-				return nil, err
-			}
-			if strings.TrimSpace(label) != "" {
-				category.Label = strings.TrimSpace(label)
-			}
-		}
-		if orderNode := pairs.get("order"); orderNode != nil {
-			order, err := wantInt(orderNode, i18n.KeyConfigCategoryOrder, index)
-			if err != nil {
-				return nil, err
-			}
-			category.Order = order
-		}
-		categories = append(categories, category)
-	}
-	return categories, nil
-}
-
-func parseFriends(node *yaml.Node) ([]Friend, error) {
-	if node.Kind != yaml.SequenceNode {
-		return nil, ConfigError(i18n.KeyConfigFriendsNotList)
-	}
-	friends := make([]Friend, 0, len(node.Content))
-	for index, item := range node.Content {
-		if item.Kind != yaml.MappingNode {
-			return nil, ConfigError(i18n.KeyConfigFriendNotObject, index)
-		}
-		pairs, err := mapPairs(item, "friends")
+		pairs, err := mapPairs(item, "peers")
 		if err != nil {
 			return nil, err
 		}
 		nameNode := pairs.get("name")
 		if nameNode == nil {
-			return nil, ConfigError(i18n.KeyConfigFriendName, index)
+			return nil, ConfigError(i18n.KeyConfigPeerName, index)
 		}
-		name, err := wantString(nameNode, i18n.KeyConfigFriendName, index)
+		name, err := wantString(nameNode, i18n.KeyConfigPeerName, index)
 		if err != nil {
 			return nil, err
 		}
 		name = strings.TrimSpace(name)
 		if name == "" {
-			return nil, ConfigError(i18n.KeyConfigFriendName, index)
+			return nil, ConfigError(i18n.KeyConfigPeerName, index)
 		}
 
 		addressNode := pairs.get("addresses")
@@ -463,33 +448,153 @@ func parseFriends(node *yaml.Node) ([]Friend, error) {
 			return nil, ConfigError(i18n.KeyConfigAddressesEmpty, name)
 		}
 
-		friend := Friend{Name: name, Addresses: addresses, Category: DefaultCategory, Index: index}
+		kindNode := pairs.get("kind")
+		if kindNode == nil {
+			return nil, ConfigError(i18n.KeyConfigPeerKind, name)
+		}
+		kind, err := parsePeerKind(kindNode, name)
+		if err != nil {
+			return nil, err
+		}
+		peer := Peer{Name: name, Addresses: addresses, Kind: kind, Category: kind, Index: index}
 		if noteNode := pairs.get("note"); noteNode != nil {
-			note, err := wantString(noteNode, i18n.KeyConfigFriendNote, name)
+			note, err := wantString(noteNode, i18n.KeyConfigPeerNote, name)
 			if err != nil {
 				return nil, err
 			}
 			if trimmed := strings.TrimSpace(note); trimmed != "" {
-				friend.Note = &trimmed
-			}
-		}
-		if categoryNode := pairs.get("category", "group"); categoryNode != nil {
-			category, err := wantString(categoryNode, i18n.KeyConfigCategoryType, name)
-			if err != nil {
-				return nil, err
-			}
-			if slug := slug(category); slug != "" {
-				friend.Category = slug
+				peer.Note = &trimmed
 			}
 		}
 		properties, err := parseProperties(pairs.get("properties"), name)
 		if err != nil {
 			return nil, err
 		}
-		friend.Properties = properties
-		friends = append(friends, friend)
+		peer.Properties = properties
+		peers = append(peers, peer)
 	}
-	return friends, nil
+	return peers, nil
+}
+
+// parsePeerKind 只认 friend / server；没写或写错都直接报错，不猜。
+func parsePeerKind(node *yaml.Node, name string) (string, error) {
+	raw, err := wantString(node, i18n.KeyConfigPeerKind, name)
+	if err != nil {
+		return "", err
+	}
+	switch kind := slug(raw); kind {
+	case KindFriend, KindServer:
+		return kind, nil
+	default:
+		return "", ConfigError(i18n.KeyConfigPeerKind, name)
+	}
+}
+
+// parseCloudServers 解析 cloud_servers：中继服务器。
+// private / public 都是数组（至少一边非空），core 全文件最多一个。
+func parseCloudServers(node *yaml.Node, offset int) ([]Peer, error) {
+	if node.Kind != yaml.SequenceNode {
+		return nil, ConfigError(i18n.KeyConfigCloudServersNotList)
+	}
+	servers := make([]Peer, 0, len(node.Content))
+	coreName := ""
+	for index, item := range node.Content {
+		if item.Kind != yaml.MappingNode {
+			return nil, ConfigError(i18n.KeyConfigCloudServerNotObject, index)
+		}
+		pairs, err := mapPairs(item, "cloud_servers")
+		if err != nil {
+			return nil, err
+		}
+		nameNode := pairs.get("name")
+		if nameNode == nil {
+			return nil, ConfigError(i18n.KeyConfigCloudServerName, index)
+		}
+		name, err := wantString(nameNode, i18n.KeyConfigCloudServerName, index)
+		if err != nil {
+			return nil, err
+		}
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return nil, ConfigError(i18n.KeyConfigCloudServerName, index)
+		}
+
+		private, err := parseAddressList(pairs.get("private"), name, "private")
+		if err != nil {
+			return nil, err
+		}
+		public, err := parseAddressList(pairs.get("public"), name, "public")
+		if err != nil {
+			return nil, err
+		}
+		if len(private) == 0 && len(public) == 0 {
+			return nil, ConfigError(i18n.KeyConfigCloudServerAddress, name)
+		}
+
+		server := Peer{
+			Name: name, Kind: KindCloud, Category: KindCloud, Index: offset + index,
+			Addresses: append(append([]string{}, private...), public...),
+			Private:   private,
+			Public:    public,
+		}
+		if coreNode := pairs.get("core"); coreNode != nil {
+			core, err := wantBool(coreNode, i18n.KeyConfigCloudServerCore, name)
+			if err != nil {
+				return nil, err
+			}
+			if core {
+				if coreName != "" {
+					return nil, ConfigError(i18n.KeyConfigCloudServerCoreMultiple, coreName, name)
+				}
+				coreName = name
+			}
+			server.Core = core
+		}
+		if noteNode := pairs.get("note"); noteNode != nil {
+			note, err := wantString(noteNode, i18n.KeyConfigPeerNote, name)
+			if err != nil {
+				return nil, err
+			}
+			if trimmed := strings.TrimSpace(note); trimmed != "" {
+				server.Note = &trimmed
+			}
+		}
+		properties, err := parseProperties(pairs.get("properties"), name)
+		if err != nil {
+			return nil, err
+		}
+		server.Properties = properties
+		servers = append(servers, server)
+	}
+	return servers, nil
+}
+
+// parseAddressList 解析 private / public：不写没关系，写了就必须是合法的非空字符串数组。
+func parseAddressList(node *yaml.Node, name, field string) ([]string, error) {
+	if isNull(node) {
+		return nil, nil
+	}
+	if node.Kind != yaml.SequenceNode {
+		return nil, ConfigError(i18n.KeyConfigAddressesNotList, name)
+	}
+	addresses := make([]string, 0, len(node.Content))
+	for _, entry := range node.Content {
+		address, err := wantString(entry, i18n.KeyConfigAddressesNotList, name)
+		if err != nil {
+			return nil, err
+		}
+		address = strings.TrimSpace(address)
+		if address == "" {
+			return nil, ConfigError(i18n.KeyConfigCloudServerAddress, name)
+		}
+		if !validHost(hostOf(address)) {
+			return nil, ConfigError(i18n.KeyConfigAddressInvalid, name, field, address)
+		}
+		if !contains(addresses, address) {
+			addresses = append(addresses, address)
+		}
+	}
+	return addresses, nil
 }
 
 func parseServices(node *yaml.Node) ([]Service, error) {
@@ -560,7 +665,7 @@ func parseServices(node *yaml.Node) ([]Service, error) {
 				return nil, ConfigError(i18n.KeyConfigServiceProtocol, name, protocol)
 			}
 		}
-		if cmdNode := pairs.get("connect_cmd", "connectCmd"); cmdNode != nil {
+		if cmdNode := pairs.get("connect_cmd"); cmdNode != nil {
 			cmd, err := wantString(cmdNode, i18n.KeyConfigServiceConnectCmd, name)
 			if err != nil {
 				return nil, err
@@ -569,7 +674,7 @@ func parseServices(node *yaml.Node) ([]Service, error) {
 				service.ConnectCmd = &trimmed
 			}
 		}
-		if categoryNode := pairs.get("category", "group"); categoryNode != nil {
+		if categoryNode := pairs.get("category"); categoryNode != nil {
 			category, err := wantString(categoryNode, i18n.KeyConfigCategoryType, name)
 			if err != nil {
 				return nil, err
@@ -631,7 +736,7 @@ func parseLinks(node *yaml.Node) ([]Link, error) {
 		}
 
 		link := Link{Name: name, URL: rawURL, ExpectStatus: 200, Index: index}
-		if probeNode := pairs.get("probe_url", "probeUrl"); probeNode != nil {
+		if probeNode := pairs.get("probe_url"); probeNode != nil {
 			probeURL, err := wantString(probeNode, i18n.KeyConfigLinkProbeURL, name)
 			if err != nil {
 				return nil, err
@@ -644,7 +749,7 @@ func parseLinks(node *yaml.Node) ([]Link, error) {
 				link.ProbeURL = &probeURL
 			}
 		}
-		if statusNode := pairs.get("expect_status", "expectStatus"); statusNode != nil {
+		if statusNode := pairs.get("expect_status"); statusNode != nil {
 			status, err := wantInt(statusNode, i18n.KeyConfigLinkExpectStatus, name)
 			if err != nil {
 				return nil, err
@@ -724,7 +829,7 @@ func mapPairs(node *yaml.Node, owner string) (nodePairs, error) {
 	return pairs, nil
 }
 
-// isNull 认「字段写了但没给值」（friends: 这种），当成空列表。
+// isNull 认「字段写了但没给值」（peers: 这种），当成空列表。
 func isNull(node *yaml.Node) bool {
 	return node == nil || (node.Kind == yaml.ScalarNode && node.Tag == "!!null")
 }
@@ -734,6 +839,13 @@ func wantString(node *yaml.Node, key i18n.Key, args ...any) (string, error) {
 		return "", ConfigError(key, args...)
 	}
 	return node.Value, nil
+}
+
+func wantBool(node *yaml.Node, key i18n.Key, args ...any) (bool, error) {
+	if node.Kind != yaml.ScalarNode || node.Tag != "!!bool" {
+		return false, ConfigError(key, args...)
+	}
+	return node.Value == "true", nil
 }
 
 func wantInt(node *yaml.Node, key i18n.Key, args ...any) (int, error) {

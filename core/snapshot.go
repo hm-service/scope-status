@@ -16,8 +16,8 @@ func NewSummary(total, online int) Summary {
 	return Summary{Total: total, Online: online, Offline: total - online}
 }
 
-type FriendStatus struct {
-	Friend    Friend
+type PeerStatus struct {
+	Peer      Peer
 	Online    bool
 	LatencyMs *float64
 	Addresses []ProbeResult
@@ -59,7 +59,7 @@ type Snapshot struct {
 	StreamInterval  float64
 	Summary         Summary
 	Groups          []Group
-	Friends         []FriendStatus
+	Peers           []PeerStatus
 	Services        []ServiceStatus
 	ServicesGroups  []Group
 	ServicesSummary Summary
@@ -92,12 +92,12 @@ func BestLatency(results []ProbeResult) *float64 {
 	return best
 }
 
-func GroupFriends(source *Source, friends []FriendStatus) []Group {
-	ids := make([]string, len(friends))
-	online := make([]bool, len(friends))
-	for index, friend := range friends {
-		ids[index] = friend.Friend.Category
-		online[index] = friend.Online
+func GroupPeers(source *Source, peers []PeerStatus) []Group {
+	ids := make([]string, len(peers))
+	online := make([]bool, len(peers))
+	for index, peer := range peers {
+		ids[index] = peer.Peer.Category
+		online[index] = peer.Online
 	}
 	return groupBy(source, ids, online)
 }

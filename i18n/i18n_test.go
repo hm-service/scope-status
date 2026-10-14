@@ -49,10 +49,10 @@ func TestTablesMatch(t *testing.T) {
 }
 
 func TestPlaceholdersRender(t *testing.T) {
-	if got := T(Zh, KeyConfigFriendName, 3); got != "第 3 项缺少非空字符串字段 name" {
+	if got := T(Zh, KeyConfigPeerName, 3); got != "第 3 项缺少非空字符串字段 name" {
 		t.Fatalf("中文占位符没渲染：%q", got)
 	}
-	if got := T(En, KeyConfigFriendName, 3); got != "entry #3 has no non-empty string field name" {
+	if got := T(En, KeyConfigPeerName, 3); got != "entry #3 has no non-empty string field name" {
 		t.Fatalf("英文占位符没渲染：%q", got)
 	}
 }

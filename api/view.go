@@ -15,14 +15,20 @@ type addressView struct {
 	Method    string   `json:"method"`
 }
 
-type friendView struct {
+type peerView struct {
 	Name       string          `json:"name"`
 	Note       *string         `json:"note"`
-	Category   string          `json:"category"`
+	Kind       string          `json:"kind"`
 	Online     bool            `json:"online"`
 	LatencyMs  *float64        `json:"latencyMs"`
 	Addresses  []addressView   `json:"addresses"`
 	Properties core.Properties `json:"properties"`
+
+	// 只有 kind = cloud 才有：core 是 WG 主干，private / public 分开给前端展示。
+	Core    bool     `json:"core,omitempty"`
+	Private []string `json:"private,omitempty"`
+	Public  []string `json:"public,omitempty"`
+	WGPeers []string `json:"wgPeers,omitempty"`
 }
 
 type serviceView struct {
@@ -60,7 +66,7 @@ type groupView struct {
 	Order    int           `json:"order"`
 	Total    int           `json:"total"`
 	Online   int           `json:"online"`
-	Friends  []friendView  `json:"friends,omitempty"`
+	Peers    []peerView    `json:"peers,omitempty"`
 	Services []serviceView `json:"services,omitempty"`
 }
 
@@ -75,7 +81,7 @@ type snapshotView struct {
 	Reused          bool          `json:"reused"`
 	Summary         core.Summary  `json:"summary"`
 	Groups          []groupView   `json:"groups"`
-	Friends         []friendView  `json:"friends"`
+	Peers           []peerView    `json:"peers"`
 	Services        []serviceView `json:"services"`
 	ServicesGroups  []groupView   `json:"servicesGroups"`
 	ServicesSummary core.Summary  `json:"servicesSummary"`
@@ -83,12 +89,50 @@ type snapshotView struct {
 	LinksSummary    core.Summary  `json:"linksSummary"`
 }
 
+// clouds 是「中继基建」里的机器，用来算 WG 链路：配置里不再写 wg_peers，
+// 统一按 core 推——主干 ↔ 其余每一台，两边都给出对端名字，前端按无向边画。
+type cloudInfo struct {
+	name   string
+	isCore bool
+}
+
+func wgPeersFor(peer core.Peer, clouds []cloudInfo) []string {
+	if peer.Kind != core.KindCloud || len(clouds) == 0 {
+		return nil
+	}
+	coreName := ""
+	for _, cloud := range clouds {
+		if cloud.isCore {
+			coreName = cloud.name
+		}
+	}
+	if coreName == "" {
+		return nil
+	}
+	if peer.Core {
+		names := make([]string, 0, len(clouds)-1)
+		for _, cloud := range clouds {
+			if cloud.name != peer.Name {
+				names = append(names, cloud.name)
+			}
+		}
+		return names
+	}
+	return []string{coreName}
+}
+
 // SnapshotView 把快照转成前端消费的形状：文案在这里按请求的语言渲染。
 func SnapshotView(snapshot *core.Snapshot, lang i18n.Lang, reused bool) any {
-	friends := make([]friendView, 0, len(snapshot.Friends))
-	for _, friend := range snapshot.Friends {
-		addresses := make([]addressView, 0, len(friend.Addresses))
-		for _, result := range friend.Addresses {
+	clouds := make([]cloudInfo, 0, 4)
+	for _, peer := range snapshot.Peers {
+		if peer.Peer.Kind == core.KindCloud {
+			clouds = append(clouds, cloudInfo{name: peer.Peer.Name, isCore: peer.Peer.Core})
+		}
+	}
+	peers := make([]peerView, 0, len(snapshot.Peers))
+	for _, peer := range snapshot.Peers {
+		addresses := make([]addressView, 0, len(peer.Addresses))
+		for _, result := range peer.Addresses {
 			addresses = append(addresses, addressView{
 				Address:   result.Address,
 				Status:    result.Status,
@@ -97,14 +141,18 @@ func SnapshotView(snapshot *core.Snapshot, lang i18n.Lang, reused bool) any {
 				Method:    result.Method,
 			})
 		}
-		friends = append(friends, friendView{
-			Name:       friend.Friend.Name,
-			Note:       friend.Friend.Note,
-			Category:   friend.Friend.Category,
-			Online:     friend.Online,
-			LatencyMs:  friend.LatencyMs,
+		peers = append(peers, peerView{
+			Name:       peer.Peer.Name,
+			Note:       peer.Peer.Note,
+			Kind:       peer.Peer.Kind,
+			Online:     peer.Online,
+			LatencyMs:  peer.LatencyMs,
 			Addresses:  addresses,
-			Properties: friend.Friend.Properties,
+			Properties: peer.Peer.Properties,
+			Core:       peer.Peer.Core,
+			Private:    peer.Peer.Private,
+			Public:     peer.Peer.Public,
+			WGPeers:    wgPeersFor(peer.Peer, clouds),
 		})
 	}
 
@@ -145,17 +193,17 @@ func SnapshotView(snapshot *core.Snapshot, lang i18n.Lang, reused bool) any {
 
 	groups := make([]groupView, 0, len(snapshot.Groups))
 	for _, group := range snapshot.Groups {
-		members := make([]friendView, 0, len(group.Members))
+		members := make([]peerView, 0, len(group.Members))
 		for _, index := range group.Members {
-			members = append(members, friends[index])
+			members = append(members, peers[index])
 		}
 		groups = append(groups, groupView{
-			ID:      group.Category.ID,
-			Label:   group.Category.Render(lang),
-			Order:   group.Category.Order,
-			Total:   group.Total,
-			Online:  group.Online,
-			Friends: members,
+			ID:     group.Category.ID,
+			Label:  group.Category.Render(lang),
+			Order:  group.Category.Order,
+			Total:  group.Total,
+			Online: group.Online,
+			Peers:  members,
 		})
 	}
 
@@ -186,7 +234,7 @@ func SnapshotView(snapshot *core.Snapshot, lang i18n.Lang, reused bool) any {
 		Reused:          reused,
 		Summary:         snapshot.Summary,
 		Groups:          groups,
-		Friends:         friends,
+		Peers:           peers,
 		Services:        services,
 		ServicesGroups:  serviceGroups,
 		ServicesSummary: snapshot.ServicesSummary,

@@ -25,52 +25,54 @@ func (k Key) String() string { return string(k) }
 
 // 配置解析。
 const (
-	KeyConfigMissing           Key = "config.error.missing"
-	KeyConfigUnreadable        Key = "config.error.unreadable"
-	KeyConfigEmpty             Key = "config.error.empty"
-	KeyConfigNotMapping        Key = "config.error.not-mapping"
-	KeyConfigSyntax            Key = "config.error.syntax"
-	KeyConfigDuplicateKey      Key = "config.error.duplicate-key"
-	KeyConfigTitle             Key = "config.error.title"
-	KeyConfigFriendsNotList    Key = "config.error.friends-not-list"
-	KeyConfigFriendNotObject   Key = "config.error.friend-not-object"
-	KeyConfigFriendName        Key = "config.error.friend-name"
-	KeyConfigFriendNote        Key = "config.error.friend-note"
-	KeyConfigAddressesMissing  Key = "config.error.addresses-missing"
-	KeyConfigAddressesNotList  Key = "config.error.addresses-not-list"
-	KeyConfigAddressesEmpty    Key = "config.error.addresses-empty"
-	KeyConfigAddressInvalid    Key = "config.error.address-invalid"
-	KeyConfigHostInvalid       Key = "config.error.host-invalid"
-	KeyConfigCategoryType      Key = "config.error.category-type"
-	KeyConfigPropsNotMapping   Key = "config.error.properties-not-mapping"
-	KeyConfigPropEmptyName     Key = "config.error.property-empty-name"
-	KeyConfigPropNotScalar     Key = "config.error.property-not-scalar"
-	KeyConfigCategoriesNotList Key = "config.error.categories-not-list"
-	KeyConfigCategoryNotObject Key = "config.error.category-not-object"
-	KeyConfigCategoryID        Key = "config.error.category-id"
-	KeyConfigCategoryLabel     Key = "config.error.category-label"
-	KeyConfigCategoryOrder     Key = "config.error.category-order"
-	KeyConfigServicesNotList   Key = "config.error.services-not-list"
-	KeyConfigServiceNotObject  Key = "config.error.service-not-object"
-	KeyConfigServiceName       Key = "config.error.service-name"
-	KeyConfigServiceHost       Key = "config.error.service-host"
-	KeyConfigServicePort       Key = "config.error.service-port"
-	KeyConfigServicePortRange  Key = "config.error.service-port-range"
-	KeyConfigServiceProtocol   Key = "config.error.service-protocol"
-	KeyConfigServiceConnectCmd Key = "config.error.service-connect-cmd"
-	KeyConfigLinksNotList      Key = "config.error.links-not-list"
-	KeyConfigLinkNotObject     Key = "config.error.link-not-object"
-	KeyConfigLinkName          Key = "config.error.link-name"
-	KeyConfigLinkURL           Key = "config.error.link-url"
-	KeyConfigLinkURLInvalid    Key = "config.error.link-url-invalid"
-	KeyConfigLinkProbeURL      Key = "config.error.link-probe-url"
-	KeyConfigLinkExpectStatus  Key = "config.error.link-expect-status"
-	KeyConfigProbeNotMapping   Key = "config.error.probe-not-mapping"
-	KeyConfigProbeMethod       Key = "config.error.probe-method"
-	KeyConfigProbeTimeout      Key = "config.error.probe-timeout"
-	KeyConfigProbePort         Key = "config.error.probe-port"
-	KeyConfigProbeConcurrency  Key = "config.error.probe-concurrency"
-	KeyConfigProbeCount        Key = "config.error.probe-count"
+	KeyConfigMissing                 Key = "config.error.missing"
+	KeyConfigUnreadable              Key = "config.error.unreadable"
+	KeyConfigEmpty                   Key = "config.error.empty"
+	KeyConfigNotMapping              Key = "config.error.not-mapping"
+	KeyConfigSyntax                  Key = "config.error.syntax"
+	KeyConfigDuplicateKey            Key = "config.error.duplicate-key"
+	KeyConfigTitle                   Key = "config.error.title"
+	KeyConfigPeersNotList            Key = "config.error.peers-not-list"
+	KeyConfigPeerNotObject           Key = "config.error.peer-not-object"
+	KeyConfigPeerName                Key = "config.error.peer-name"
+	KeyConfigPeerNote                Key = "config.error.peer-note"
+	KeyConfigPeerKind                Key = "config.error.peer-kind"
+	KeyConfigCloudServersNotList     Key = "config.error.cloud-servers-not-list"
+	KeyConfigCloudServerNotObject    Key = "config.error.cloud-server-not-object"
+	KeyConfigCloudServerName         Key = "config.error.cloud-server-name"
+	KeyConfigCloudServerCore         Key = "config.error.cloud-server-core"
+	KeyConfigCloudServerCoreMultiple Key = "config.error.cloud-server-core-multiple"
+	KeyConfigCloudServerAddress      Key = "config.error.cloud-server-address"
+	KeyConfigAddressesMissing        Key = "config.error.addresses-missing"
+	KeyConfigAddressesNotList        Key = "config.error.addresses-not-list"
+	KeyConfigAddressesEmpty          Key = "config.error.addresses-empty"
+	KeyConfigAddressInvalid          Key = "config.error.address-invalid"
+	KeyConfigHostInvalid             Key = "config.error.host-invalid"
+	KeyConfigCategoryType            Key = "config.error.category-type"
+	KeyConfigPropsNotMapping         Key = "config.error.properties-not-mapping"
+	KeyConfigPropEmptyName           Key = "config.error.property-empty-name"
+	KeyConfigPropNotScalar           Key = "config.error.property-not-scalar"
+	KeyConfigServicesNotList         Key = "config.error.services-not-list"
+	KeyConfigServiceNotObject        Key = "config.error.service-not-object"
+	KeyConfigServiceName             Key = "config.error.service-name"
+	KeyConfigServiceHost             Key = "config.error.service-host"
+	KeyConfigServicePort             Key = "config.error.service-port"
+	KeyConfigServicePortRange        Key = "config.error.service-port-range"
+	KeyConfigServiceProtocol         Key = "config.error.service-protocol"
+	KeyConfigServiceConnectCmd       Key = "config.error.service-connect-cmd"
+	KeyConfigLinksNotList            Key = "config.error.links-not-list"
+	KeyConfigLinkNotObject           Key = "config.error.link-not-object"
+	KeyConfigLinkName                Key = "config.error.link-name"
+	KeyConfigLinkURL                 Key = "config.error.link-url"
+	KeyConfigLinkURLInvalid          Key = "config.error.link-url-invalid"
+	KeyConfigLinkProbeURL            Key = "config.error.link-probe-url"
+	KeyConfigLinkExpectStatus        Key = "config.error.link-expect-status"
+	KeyConfigProbeNotMapping         Key = "config.error.probe-not-mapping"
+	KeyConfigProbeMethod             Key = "config.error.probe-method"
+	KeyConfigProbeTimeout            Key = "config.error.probe-timeout"
+	KeyConfigProbePort               Key = "config.error.probe-port"
+	KeyConfigProbeConcurrency        Key = "config.error.probe-concurrency"
+	KeyConfigProbeCount              Key = "config.error.probe-count"
 )
 
 // 探测。
@@ -157,6 +159,7 @@ const (
 	KeyCategoryFriend  Key = "category.friend"
 	KeyCategoryService Key = "category.service"
 	KeyCategoryServer  Key = "category.server"
+	KeyCategoryCloud   Key = "category.cloud"
 	KeyCategoryNAS     Key = "category.nas"
 	KeyCategoryRouter  Key = "category.router"
 	KeyCategoryIoT     Key = "category.iot"
@@ -164,52 +167,54 @@ const (
 )
 
 var zh = map[Key]string{
-	KeyConfigMissing:           "配置文件不存在：%s",
-	KeyConfigUnreadable:        "读不了配置文件 %s：%s",
-	KeyConfigEmpty:             "%s 是空文件",
-	KeyConfigNotMapping:        "%s 顶层必须是 mapping 或数组",
-	KeyConfigSyntax:            "%s 不是合法 YAML：%s",
-	KeyConfigDuplicateKey:      "%s 里 %s 出现了两次",
-	KeyConfigTitle:             "title 必须是字符串",
-	KeyConfigFriendsNotList:    "friends 必须是数组",
-	KeyConfigFriendNotObject:   "friends[%d] 必须是对象",
-	KeyConfigFriendName:        "第 %d 项缺少非空字符串字段 name",
-	KeyConfigFriendNote:        "条目 %s 的 note 必须是字符串",
-	KeyConfigAddressesMissing:  "条目 %s 缺少 addresses",
-	KeyConfigAddressesNotList:  "条目 %s 的 addresses 必须是非空数组",
-	KeyConfigAddressesEmpty:    "条目 %s 的 addresses 里没有有效地址",
-	KeyConfigAddressInvalid:    "%s 的%s %s 不是合法 IP 或域名",
-	KeyConfigHostInvalid:       "服务 %s 的 host %s 不是合法 IP 或域名",
-	KeyConfigCategoryType:      "%s 的 category 必须是字符串",
-	KeyConfigPropsNotMapping:   "%s 的 properties 必须是「名称: 值」的映射",
-	KeyConfigPropEmptyName:     "%s 的 properties 里有空名称",
-	KeyConfigPropNotScalar:     "%s 的 properties 里 %s 的值不是标量",
-	KeyConfigCategoriesNotList: "categories 必须是数组",
-	KeyConfigCategoryNotObject: "categories[%d] 必须是对象",
-	KeyConfigCategoryID:        "categories[%d] 缺少非空字符串字段 id",
-	KeyConfigCategoryLabel:     "categories[%d] 的 label 必须是字符串",
-	KeyConfigCategoryOrder:     "categories[%d] 的 order 必须是整数",
-	KeyConfigServicesNotList:   "services 必须是数组",
-	KeyConfigServiceNotObject:  "services[%d] 必须是对象",
-	KeyConfigServiceName:       "services[%d] 缺少非空字符串字段 name",
-	KeyConfigServiceHost:       "服务 %s 缺少非空字符串字段 host",
-	KeyConfigServicePort:       "服务 %s 的 port 必须是整数",
-	KeyConfigServicePortRange:  "服务 %s 的 port 超出 1-65535",
-	KeyConfigServiceProtocol:   "服务 %s 的 protocol 只支持 udp / tcp / a2s，收到 %s",
-	KeyConfigServiceConnectCmd: "服务 %s 的 connect_cmd 必须是字符串",
-	KeyConfigLinksNotList:      "links 必须是数组",
-	KeyConfigLinkNotObject:     "links[%d] 必须是对象",
-	KeyConfigLinkName:          "links[%d] 缺少非空字符串字段 name",
-	KeyConfigLinkURL:           "链接 %s 缺少非空字符串字段 url",
-	KeyConfigLinkURLInvalid:    "链接 %s 的%s %s 必须是 http(s):// 开头的完整地址",
-	KeyConfigLinkProbeURL:      "链接 %s 的 probe_url 必须是字符串",
-	KeyConfigLinkExpectStatus:  "链接 %s 的 expect_status 必须是整数",
-	KeyConfigProbeNotMapping:   "probe 必须是对象",
-	KeyConfigProbeMethod:       "probe.method 只支持 icmp / tcp / http，收到 %s",
-	KeyConfigProbeTimeout:      "probe.timeout 必须是数字（秒）",
-	KeyConfigProbePort:         "probe.port 必须是整数",
-	KeyConfigProbeConcurrency:  "probe.concurrency 必须是整数",
-	KeyConfigProbeCount:        "probe.count 必须是整数",
+	KeyConfigMissing:                 "配置文件不存在：%s",
+	KeyConfigUnreadable:              "读不了配置文件 %s：%s",
+	KeyConfigEmpty:                   "%s 是空文件",
+	KeyConfigNotMapping:              "%s 顶层必须是 mapping 或数组",
+	KeyConfigSyntax:                  "%s 不是合法 YAML：%s",
+	KeyConfigDuplicateKey:            "%s 里 %s 出现了两次",
+	KeyConfigTitle:                   "title 必须是字符串",
+	KeyConfigPeersNotList:            "peers 必须是数组",
+	KeyConfigPeerNotObject:           "peers[%d] 必须是对象",
+	KeyConfigPeerName:                "第 %d 项缺少非空字符串字段 name",
+	KeyConfigPeerNote:                "条目 %s 的 note 必须是字符串",
+	KeyConfigPeerKind:                "条目 %s 的 kind 只能是 friend / server",
+	KeyConfigCloudServersNotList:     "cloud_servers 必须是数组",
+	KeyConfigCloudServerNotObject:    "cloud_servers[%d] 必须是对象",
+	KeyConfigCloudServerName:         "cloud_servers 第 %d 项缺少非空字符串字段 name",
+	KeyConfigCloudServerCore:         "云服务器 %s 的 core 必须是布尔值",
+	KeyConfigCloudServerCoreMultiple: "core: true 只能有一个，现在是 %s 和 %s",
+	KeyConfigCloudServerAddress:      "云服务器 %s 的 private / public 至少要有一个地址",
+	KeyConfigAddressesMissing:        "条目 %s 缺少 addresses",
+	KeyConfigAddressesNotList:        "条目 %s 的 addresses 必须是非空数组",
+	KeyConfigAddressesEmpty:          "条目 %s 的 addresses 里没有有效地址",
+	KeyConfigAddressInvalid:          "%s 的%s %s 不是合法 IP 或域名",
+	KeyConfigHostInvalid:             "服务 %s 的 host %s 不是合法 IP 或域名",
+	KeyConfigCategoryType:            "%s 的 category 必须是字符串",
+	KeyConfigPropsNotMapping:         "%s 的 properties 必须是「名称: 值」的映射",
+	KeyConfigPropEmptyName:           "%s 的 properties 里有空名称",
+	KeyConfigPropNotScalar:           "%s 的 properties 里 %s 的值不是标量",
+	KeyConfigServicesNotList:         "services 必须是数组",
+	KeyConfigServiceNotObject:        "services[%d] 必须是对象",
+	KeyConfigServiceName:             "services[%d] 缺少非空字符串字段 name",
+	KeyConfigServiceHost:             "服务 %s 缺少非空字符串字段 host",
+	KeyConfigServicePort:             "服务 %s 的 port 必须是整数",
+	KeyConfigServicePortRange:        "服务 %s 的 port 超出 1-65535",
+	KeyConfigServiceProtocol:         "服务 %s 的 protocol 只支持 udp / tcp / a2s，收到 %s",
+	KeyConfigServiceConnectCmd:       "服务 %s 的 connect_cmd 必须是字符串",
+	KeyConfigLinksNotList:            "links 必须是数组",
+	KeyConfigLinkNotObject:           "links[%d] 必须是对象",
+	KeyConfigLinkName:                "links[%d] 缺少非空字符串字段 name",
+	KeyConfigLinkURL:                 "链接 %s 缺少非空字符串字段 url",
+	KeyConfigLinkURLInvalid:          "链接 %s 的%s %s 必须是 http(s):// 开头的完整地址",
+	KeyConfigLinkProbeURL:            "链接 %s 的 probe_url 必须是字符串",
+	KeyConfigLinkExpectStatus:        "链接 %s 的 expect_status 必须是整数",
+	KeyConfigProbeNotMapping:         "probe 必须是对象",
+	KeyConfigProbeMethod:             "probe.method 只支持 icmp / tcp / http，收到 %s",
+	KeyConfigProbeTimeout:            "probe.timeout 必须是数字（秒）",
+	KeyConfigProbePort:               "probe.port 必须是整数",
+	KeyConfigProbeConcurrency:        "probe.concurrency 必须是整数",
+	KeyConfigProbeCount:              "probe.count 必须是整数",
 
 	KeyProbeNoPing:         "系统里没有 ping 命令，把 probe.method 改成 tcp 吧",
 	KeyProbeDNS:            "%s 解析失败",
@@ -283,6 +288,7 @@ var zh = map[Key]string{
 	KeyCategoryFriend:  "朋友",
 	KeyCategoryService: "服务",
 	KeyCategoryServer:  "服务器",
+	KeyCategoryCloud:   "云服务器",
 	KeyCategoryNAS:     "NAS / 存储",
 	KeyCategoryRouter:  "路由器",
 	KeyCategoryIoT:     "IoT / 智能家居",
@@ -291,52 +297,54 @@ var zh = map[Key]string{
 }
 
 var en = map[Key]string{
-	KeyConfigMissing:           "config file not found: %s",
-	KeyConfigUnreadable:        "cannot read config file %s: %s",
-	KeyConfigEmpty:             "%s is empty",
-	KeyConfigNotMapping:        "top level of %s must be a mapping or a list",
-	KeyConfigSyntax:            "%s is not valid YAML: %s",
-	KeyConfigDuplicateKey:      "%s defines %s twice",
-	KeyConfigTitle:             "title must be a string",
-	KeyConfigFriendsNotList:    "friends must be a list",
-	KeyConfigFriendNotObject:   "friends[%d] must be a mapping",
-	KeyConfigFriendName:        "entry #%d has no non-empty string field name",
-	KeyConfigFriendNote:        "note of %s must be a string",
-	KeyConfigAddressesMissing:  "%s has no addresses",
-	KeyConfigAddressesNotList:  "addresses of %s must be a non-empty list",
-	KeyConfigAddressesEmpty:    "addresses of %s has no usable address",
-	KeyConfigAddressInvalid:    "%s of %s is neither an IP nor a domain: %s",
-	KeyConfigHostInvalid:       "host of service %s is neither an IP nor a domain: %s",
-	KeyConfigCategoryType:      "category of %s must be a string",
-	KeyConfigPropsNotMapping:   "properties of %s must be a name: value mapping",
-	KeyConfigPropEmptyName:     "properties of %s has an empty name",
-	KeyConfigPropNotScalar:     "value of property %s of %s is not a scalar",
-	KeyConfigCategoriesNotList: "categories must be a list",
-	KeyConfigCategoryNotObject: "categories[%d] must be a mapping",
-	KeyConfigCategoryID:        "categories[%d] has no non-empty string field id",
-	KeyConfigCategoryLabel:     "label of categories[%d] must be a string",
-	KeyConfigCategoryOrder:     "order of categories[%d] must be an integer",
-	KeyConfigServicesNotList:   "services must be a list",
-	KeyConfigServiceNotObject:  "services[%d] must be a mapping",
-	KeyConfigServiceName:       "services[%d] has no non-empty string field name",
-	KeyConfigServiceHost:       "service %s has no non-empty string field host",
-	KeyConfigServicePort:       "port of service %s must be an integer",
-	KeyConfigServicePortRange:  "port of service %s is out of 1-65535",
-	KeyConfigServiceProtocol:   "protocol of service %s must be udp / tcp / a2s, got %s",
-	KeyConfigServiceConnectCmd: "connect_cmd of service %s must be a string",
-	KeyConfigLinksNotList:      "links must be a list",
-	KeyConfigLinkNotObject:     "links[%d] must be a mapping",
-	KeyConfigLinkName:          "links[%d] has no non-empty string field name",
-	KeyConfigLinkURL:           "link %s has no non-empty string field url",
-	KeyConfigLinkURLInvalid:    "%s of link %s must be an absolute http(s):// URL: %s",
-	KeyConfigLinkProbeURL:      "probe_url of link %s must be a string",
-	KeyConfigLinkExpectStatus:  "expect_status of link %s must be an integer",
-	KeyConfigProbeNotMapping:   "probe must be a mapping",
-	KeyConfigProbeMethod:       "probe.method must be icmp / tcp / http, got %s",
-	KeyConfigProbeTimeout:      "probe.timeout must be a number of seconds",
-	KeyConfigProbePort:         "probe.port must be an integer",
-	KeyConfigProbeConcurrency:  "probe.concurrency must be an integer",
-	KeyConfigProbeCount:        "probe.count must be an integer",
+	KeyConfigMissing:                 "config file not found: %s",
+	KeyConfigUnreadable:              "cannot read config file %s: %s",
+	KeyConfigEmpty:                   "%s is empty",
+	KeyConfigNotMapping:              "top level of %s must be a mapping or a list",
+	KeyConfigSyntax:                  "%s is not valid YAML: %s",
+	KeyConfigDuplicateKey:            "%s defines %s twice",
+	KeyConfigTitle:                   "title must be a string",
+	KeyConfigPeersNotList:            "peers must be a list",
+	KeyConfigPeerNotObject:           "peers[%d] must be a mapping",
+	KeyConfigPeerName:                "entry #%d has no non-empty string field name",
+	KeyConfigPeerNote:                "note of %s must be a string",
+	KeyConfigPeerKind:                "kind of %s must be friend / server",
+	KeyConfigCloudServersNotList:     "cloud_servers must be a list",
+	KeyConfigCloudServerNotObject:    "cloud_servers[%d] must be a mapping",
+	KeyConfigCloudServerName:         "cloud_servers #%d has no non-empty string field name",
+	KeyConfigCloudServerCore:         "core of cloud server %s must be a boolean",
+	KeyConfigCloudServerCoreMultiple: "core: true must appear once, now %s and %s",
+	KeyConfigCloudServerAddress:      "cloud server %s needs at least one address in private / public",
+	KeyConfigAddressesMissing:        "%s has no addresses",
+	KeyConfigAddressesNotList:        "addresses of %s must be a non-empty list",
+	KeyConfigAddressesEmpty:          "addresses of %s has no usable address",
+	KeyConfigAddressInvalid:          "%s of %s is neither an IP nor a domain: %s",
+	KeyConfigHostInvalid:             "host of service %s is neither an IP nor a domain: %s",
+	KeyConfigCategoryType:            "category of %s must be a string",
+	KeyConfigPropsNotMapping:         "properties of %s must be a name: value mapping",
+	KeyConfigPropEmptyName:           "properties of %s has an empty name",
+	KeyConfigPropNotScalar:           "value of property %s of %s is not a scalar",
+	KeyConfigServicesNotList:         "services must be a list",
+	KeyConfigServiceNotObject:        "services[%d] must be a mapping",
+	KeyConfigServiceName:             "services[%d] has no non-empty string field name",
+	KeyConfigServiceHost:             "service %s has no non-empty string field host",
+	KeyConfigServicePort:             "port of service %s must be an integer",
+	KeyConfigServicePortRange:        "port of service %s is out of 1-65535",
+	KeyConfigServiceProtocol:         "protocol of service %s must be udp / tcp / a2s, got %s",
+	KeyConfigServiceConnectCmd:       "connect_cmd of service %s must be a string",
+	KeyConfigLinksNotList:            "links must be a list",
+	KeyConfigLinkNotObject:           "links[%d] must be a mapping",
+	KeyConfigLinkName:                "links[%d] has no non-empty string field name",
+	KeyConfigLinkURL:                 "link %s has no non-empty string field url",
+	KeyConfigLinkURLInvalid:          "%s of link %s must be an absolute http(s):// URL: %s",
+	KeyConfigLinkProbeURL:            "probe_url of link %s must be a string",
+	KeyConfigLinkExpectStatus:        "expect_status of link %s must be an integer",
+	KeyConfigProbeNotMapping:         "probe must be a mapping",
+	KeyConfigProbeMethod:             "probe.method must be icmp / tcp / http, got %s",
+	KeyConfigProbeTimeout:            "probe.timeout must be a number of seconds",
+	KeyConfigProbePort:               "probe.port must be an integer",
+	KeyConfigProbeConcurrency:        "probe.concurrency must be an integer",
+	KeyConfigProbeCount:              "probe.count must be an integer",
 
 	KeyProbeNoPing:         "no ping command on this system, switch probe.method to tcp",
 	KeyProbeDNS:            "cannot resolve %s",
@@ -410,6 +418,7 @@ var en = map[Key]string{
 	KeyCategoryFriend:  "Friends",
 	KeyCategoryService: "Services",
 	KeyCategoryServer:  "Servers",
+	KeyCategoryCloud:   "Cloud servers",
 	KeyCategoryNAS:     "NAS / storage",
 	KeyCategoryRouter:  "Routers",
 	KeyCategoryIoT:     "IoT / smart home",

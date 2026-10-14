@@ -72,17 +72,15 @@ title: 测试看板
 probe:
   method: tcp
   timeout: 0.5
-friends:
+peers:
   - name: 小明
+    kind: friend
     note: 备注
+    role: member
     addresses: ["%s"]
     properties:
       密码: secret
       端口: 51820
-categories:
-  - id: friend
-    label: 朋友
-    order: 1
 `, address)
 }
 
@@ -102,10 +100,15 @@ type snapshotPayload struct {
 		Total  int    `json:"total"`
 		Online int    `json:"online"`
 	} `json:"groups"`
-	Friends []struct {
-		Name      string `json:"name"`
-		Note      string `json:"note"`
-		Online    bool   `json:"online"`
+	Peers []struct {
+		Name      string   `json:"name"`
+		Note      string   `json:"note"`
+		Kind      string   `json:"kind"`
+		Core      bool     `json:"core"`
+		Private   []string `json:"private"`
+		Public    []string `json:"public"`
+		WGPeers   []string `json:"wgPeers"`
+		Online    bool     `json:"online"`
 		LatencyMs *float64
 		Addresses []struct {
 			Address string  `json:"address"`
@@ -113,7 +116,7 @@ type snapshotPayload struct {
 			Detail  *string `json:"detail"`
 		} `json:"addresses"`
 		Properties map[string]string `json:"properties"`
-	} `json:"friends"`
+	} `json:"peers"`
 	ServicesSummary struct {
 		Total int `json:"total"`
 	} `json:"servicesSummary"`
@@ -143,12 +146,15 @@ func TestStatusSnapshot(t *testing.T) {
 	if len(payload.Groups) != 1 || payload.Groups[0].Label != "朋友" || payload.Groups[0].Online != 1 {
 		t.Fatalf("分组不对：%+v", payload.Groups)
 	}
-	friend := payload.Friends[0]
-	if !friend.Online || friend.Note != "备注" || friend.Addresses[0].Status != "up" {
-		t.Fatalf("条目不对：%+v", friend)
+	peer := payload.Peers[0]
+	if !peer.Online || peer.Note != "备注" || peer.Addresses[0].Status != "up" {
+		t.Fatalf("条目不对：%+v", peer)
 	}
-	if friend.Properties["密码"] != "secret" || friend.Properties["端口"] != "51820" {
-		t.Fatalf("属性不对：%+v", friend.Properties)
+	if peer.Kind != "friend" || peer.Core || peer.Private != nil || peer.WGPeers != nil {
+		t.Fatalf("拓扑字段不对：kind=%q core=%v private=%v wg=%v", peer.Kind, peer.Core, peer.Private, peer.WGPeers)
+	}
+	if peer.Properties["密码"] != "secret" || peer.Properties["端口"] != "51820" {
+		t.Fatalf("属性不对：%+v", peer.Properties)
 	}
 
 	forced := decode[snapshotPayload](t, call(t, env, http.MethodGet, "/api/status?force=1", "").body)
@@ -170,8 +176,8 @@ func TestReload(t *testing.T) {
 	address := listenTCP(t)
 	env := testenv.New(t, sourceWith(address))
 
-	extra := strings.Replace(sourceWith(address), "categories:",
-		"  - name: 小红\n    addresses: [\"127.0.0.1:1\"]\ncategories:", 1)
+	extra := strings.Replace(sourceWith(address), "peers:\n",
+		"peers:\n  - name: 小红\n    kind: friend\n    addresses: [\"127.0.0.1:1\"]\n", 1)
 	if err := os.WriteFile(env.SourceFile, []byte(extra), 0o600); err != nil {
 		t.Fatalf("写配置失败：%v", err)
 	}
@@ -182,13 +188,13 @@ func TestReload(t *testing.T) {
 	payload := decode[struct {
 		OK          bool   `json:"ok"`
 		Message     string `json:"message"`
-		Friends     int    `json:"friends"`
+		Peers       int    `json:"peers"`
 		ReloadCount int    `json:"reloadCount"`
 		Snapshot    struct {
 			Title string `json:"title"`
 		} `json:"snapshot"`
 	}](t, response.body)
-	if !payload.OK || payload.Friends != 2 || payload.ReloadCount != 1 {
+	if !payload.OK || payload.Peers != 2 || payload.ReloadCount != 1 {
 		t.Fatalf("重载结果不对：%+v", payload)
 	}
 	if !strings.Contains(payload.Message, "已重新加载 2 个条目") {
@@ -198,17 +204,17 @@ func TestReload(t *testing.T) {
 		t.Fatalf("重载后没探一次：%+v", payload.Snapshot)
 	}
 
-	if err := os.WriteFile(env.SourceFile, []byte("friends: 1\n"), 0o600); err != nil {
+	if err := os.WriteFile(env.SourceFile, []byte("peers: 1\n"), 0o600); err != nil {
 		t.Fatalf("写配置失败：%v", err)
 	}
 	broken := call(t, env, http.MethodPost, "/api/reload", "")
 	if broken.status != http.StatusInternalServerError {
 		t.Fatalf("写坏配置应该 500，拿到 %d", broken.status)
 	}
-	if !strings.Contains(string(broken.body), "friends 必须是数组") {
+	if !strings.Contains(string(broken.body), "peers 必须是数组") {
 		t.Fatalf("应该把 YAML 的错误原文回给页面：%s", broken.body)
 	}
-	if got := len(env.App.Monitor.Source().Friends); got != 2 {
+	if got := len(env.App.Monitor.Source().Peers); got != 2 {
 		t.Fatalf("写坏了要保留旧配置，现在有 %d 个条目", got)
 	}
 }
@@ -357,6 +363,59 @@ func TestUploadLimits(t *testing.T) {
 	tooBig := call(t, env, http.MethodPut, "/api/messages/files?name=a.txt", strings.Repeat("x", 20))
 	if tooBig.status != http.StatusRequestEntityTooLarge {
 		t.Fatalf("超限状态码 = %d（%s）", tooBig.status, tooBig.body)
+	}
+}
+
+// cloud_servers 会并进 peers 列表；JSON 里给全 kind / core / private / public / wgPeers。
+func TestCloudServersInPayload(t *testing.T) {
+	env := testenv.New(t, `
+title: 测试看板
+probe:
+  method: tcp
+  timeout: 0.5
+peers:
+  - name: 小明
+    kind: friend
+    addresses: ["127.0.0.1:1"]
+cloud_servers:
+  - name: 云服务器-0
+    core: true
+    private: ["10.8.0.1"]
+    public: ["203.0.113.10"]
+  - name: 云服务器-1
+    private: ["10.8.1.1"]
+`)
+	payload := decode[snapshotPayload](t, call(t, env, http.MethodGet, "/api/status", "").body)
+	if len(payload.Peers) != 3 {
+		t.Fatalf("peers = %d（云服务器应该并进来）", len(payload.Peers))
+	}
+	byName := map[string]int{}
+	for index, peer := range payload.Peers {
+		byName[peer.Name] = index
+	}
+	if index, ok := byName["云服务器-0"]; !ok {
+		t.Fatalf("没有云服务器-0：%+v", byName)
+	} else {
+		cloud := payload.Peers[index]
+		if cloud.Kind != "cloud" || !cloud.Core {
+			t.Fatalf("kind/core = %q/%v", cloud.Kind, cloud.Core)
+		}
+		if len(cloud.Private) != 1 || cloud.Private[0] != "10.8.0.1" || len(cloud.Public) != 1 || cloud.Public[0] != "203.0.113.10" {
+			t.Fatalf("private/public = %v/%v", cloud.Private, cloud.Public)
+		}
+		if len(cloud.Addresses) != 2 {
+			t.Fatalf("探测地址 = %+v", cloud.Addresses)
+		}
+		// WG 链路按 core 推：主干列出其余每一台
+		if len(cloud.WGPeers) != 1 || cloud.WGPeers[0] != "云服务器-1" {
+			t.Fatalf("主干的 wgPeers = %v", cloud.WGPeers)
+		}
+	}
+	if index := byName["云服务器-1"]; len(payload.Peers[index].WGPeers) != 1 || payload.Peers[index].WGPeers[0] != "云服务器-0" {
+		t.Fatalf("非主干的 wgPeers = %v", payload.Peers[index].WGPeers)
+	}
+	if index := byName["小明"]; payload.Peers[index].WGPeers != nil || payload.Peers[index].Core {
+		t.Fatalf("普通条目不该有 core/wgPeers：%+v", payload.Peers[index])
 	}
 }
 
@@ -516,7 +575,7 @@ func TestHealthAndProbes(t *testing.T) {
 	env := testenv.New(t, testenv.DefaultSource)
 	health := decode[struct {
 		Status         string `json:"status"`
-		Friends        int    `json:"friends"`
+		Peers          int    `json:"peers"`
 		Categories     []string
 		StreamInterval float64 `json:"streamInterval"`
 		Messages       struct {
@@ -525,7 +584,7 @@ func TestHealthAndProbes(t *testing.T) {
 		MessagesDir    string `json:"messagesDir"`
 		MaxUploadBytes int64  `json:"maxUploadBytes"`
 	}](t, call(t, env, http.MethodGet, "/api/health", "").body)
-	if health.Status != "ok" || health.Friends != 1 || health.MaxUploadBytes != 1024*1024 {
+	if health.Status != "ok" || health.Peers != 1 || health.MaxUploadBytes != 1024*1024 {
 		t.Fatalf("健康信息不对：%+v", health)
 	}
 	if !strings.HasSuffix(health.MessagesDir, filepath.Join("data", "messages")) {

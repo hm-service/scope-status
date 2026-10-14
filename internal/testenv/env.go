@@ -24,17 +24,15 @@ title: 测试看板
 probe:
   method: tcp
   timeout: 0.5
-friends:
+peers:
   - name: 小明
+    kind: friend
     addresses: ["127.0.0.1:1"]
     properties:
       密码: secret
-categories:
-  - id: friend
-    label: 朋友
-    order: 1
 links:
   - name: 示例
+    kind: friend
     url: https://example.invalid/
 `
 

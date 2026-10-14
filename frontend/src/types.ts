@@ -17,14 +17,21 @@ export interface AddressStatus {
   method?: string
 }
 
-export interface Friend {
+export interface Peer {
   name: string
   note?: string | null
-  category?: string
+  /** 条目类型：friend | server | cloud（cloud 来自配置里的 cloud_servers 块） */
+  kind: string
   online: boolean
   latencyMs: number | null
   addresses: AddressStatus[]
   properties?: PropertyMap
+  /** 只有 kind = cloud 才有：core = WG 主干，private / public 分开给 */
+  core?: boolean
+  private?: string[]
+  public?: string[]
+  /** WG 链路对端（服务端按 core 推好，两边都给了名字） */
+  wgPeers?: string[]
 }
 
 export interface Service {
@@ -56,13 +63,13 @@ export interface Link {
   faviconUrl?: string | null
 }
 
-export interface FriendGroup {
+export interface PeerGroup {
   id: string
   label?: string
   order?: number
   total: number
   online: number
-  friends: Friend[]
+  peers: Peer[]
 }
 
 export interface ServiceGroup {
@@ -90,8 +97,8 @@ export interface Snapshot {
   streamInterval?: number
   reused?: boolean
   summary?: Summary
-  groups?: FriendGroup[]
-  friends?: Friend[]
+  groups?: PeerGroup[]
+  peers?: Peer[]
   categories?: CategoryInfo[]
   services?: Service[]
   servicesGroups?: ServiceGroup[]

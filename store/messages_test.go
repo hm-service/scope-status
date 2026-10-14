@@ -296,15 +296,15 @@ func TestLoadSource(t *testing.T) {
 		t.Fatalf("错误键 = %q", key)
 	}
 	path := filepath.Join(dir, "source.yaml")
-	if err := os.WriteFile(path, []byte("friends:\n  - name: 小明\n    addresses: [\"10.0.0.1\"]\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("peers:\n  - name: 小明\n    kind: friend\n    addresses: [\"10.0.0.1\"]\n"), 0o600); err != nil {
 		t.Fatalf("写文件失败：%v", err)
 	}
 	source, err := LoadSource(path)
 	if err != nil {
 		t.Fatalf("加载失败：%v", err)
 	}
-	if len(source.Friends) != 1 {
-		t.Fatalf("friends = %d", len(source.Friends))
+	if len(source.Peers) != 1 {
+		t.Fatalf("peers = %d", len(source.Peers))
 	}
 }
 

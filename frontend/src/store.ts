@@ -5,11 +5,12 @@ import * as api from './api'
 import { ApiError, errorMessage } from './api'
 import { lang, setLang, t, type I18nKey, type Lang } from './i18n'
 import { closeStream, connectStream, streamReadyState, type StreamState } from './sse'
-import type { Attachment, Friend, FriendGroup, Link, Message, MessageInput, MessagesFrame, Service, Snapshot, Summary } from './types'
+import type { Attachment, Peer, PeerGroup, Link, Message, MessageInput, MessagesFrame, Service, Snapshot, Summary } from './types'
 import { formatDuration } from './utils/format'
 import { formatTime, shortStamp, tickNow } from './utils/time'
 
 const STREAM_SILENCE_MS = 30000
+const TOPOLOGY_STORAGE_KEY = 'scope-status-topology'
 
 export type TabId = 'network' | 'services' | 'links' | 'messages'
 export type Theme = 'light' | 'dark'
@@ -48,6 +49,7 @@ export const state = reactive({
   theme: 'light' as Theme,
   tab: 'network' as TabId,
   menuOpen: false,
+  topologyOpen: storedTopologyOpen(),
   snapshot: null as Snapshot | null,
   messages: [] as Message[],
   unlockedKeys: new Map<string, string>(),
@@ -118,7 +120,7 @@ export const subtitle = computed(() => {
     return count ? t('topbar.subtitle.links', { count }) : t('topbar.subtitle.linksEmpty')
   }
   const groups = resolveGroups(payload)
-  const shown = payload.summary?.total ?? groups.reduce((sum, group) => sum + group.friends.length, 0)
+  const shown = payload.summary?.total ?? groups.reduce((sum, group) => sum + group.peers.length, 0)
   return groups.length
     ? t('topbar.subtitle.network', { count: shown, groups: groups.length, method: (payload.method || 'icmp').toUpperCase() })
     : t('topbar.subtitle.networkEmpty')
@@ -161,35 +163,35 @@ export const linksGroupCount = computed(() =>
   links.value.length ? t('group.online', { online: onlineCount(links.value), total: links.value.length }) : '',
 )
 
-/** 优先用后端分好的 groups；没有就按 category 在前端兜底分组。 */
-export function resolveGroups(payload: Snapshot | null): FriendGroup[] {
+/** 优先用后端分好的 groups；没有就按 kind 在前端兜底分组。 */
+export function resolveGroups(payload: Snapshot | null): PeerGroup[] {
   if (!payload) return []
   if (Array.isArray(payload.groups)) {
-    return payload.groups.filter((group) => group.friends && group.friends.length)
+    return payload.groups.filter((group) => group.peers && group.peers.length)
   }
   const order = new Map((payload.categories || []).map((category, index) => [category.id, category.order ?? index]))
-  const buckets = new Map<string, Friend[]>()
-  for (const friend of payload.friends || []) {
-    const id = friend.category || 'friend'
+  const buckets = new Map<string, Peer[]>()
+  for (const peer of payload.peers || []) {
+    const id = peer.kind || 'peer'
     const bucket = buckets.get(id)
-    if (bucket) bucket.push(friend)
-    else buckets.set(id, [friend])
+    if (bucket) bucket.push(peer)
+    else buckets.set(id, [peer])
   }
   return [...buckets.entries()]
-    .map(([id, friends]) => ({
+    .map(([id, peers]) => ({
       id,
       label: id,
       order: order.get(id) ?? 100,
-      total: friends.length,
-      online: friends.filter((friend) => friend.online).length,
-      friends,
+      total: peers.length,
+      online: peers.filter((peer) => peer.online).length,
+      peers,
     }))
     .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
 }
 
 export const groups = computed(() => resolveGroups(state.snapshot))
 
-export const friendRowsShown = computed(() => groups.value.reduce((sum, group) => sum + group.friends.length, 0))
+export const peerRowsShown = computed(() => groups.value.reduce((sum, group) => sum + group.peers.length, 0))
 
 // ---------------------------------------------------------------- 状态提示
 
@@ -236,6 +238,25 @@ export function switchTab(tabId: string): void {
   state.tab = TABS.some((tab) => tab.id === tabId) ? (tabId as TabId) : 'network'
   if (location.hash.slice(1) !== state.tab) {
     history.replaceState(null, '', state.tab === 'network' ? location.pathname : `#${state.tab}`)
+  }
+}
+
+/** 拓扑图默认展开；用户折过一次以后记住。 */
+function storedTopologyOpen(): boolean {
+  try {
+    const saved = localStorage.getItem(TOPOLOGY_STORAGE_KEY)
+    return saved === null ? true : saved === 'open'
+  } catch {
+    return true
+  }
+}
+
+export function toggleTopology(): void {
+  state.topologyOpen = !state.topologyOpen
+  try {
+    localStorage.setItem(TOPOLOGY_STORAGE_KEY, state.topologyOpen ? 'open' : 'closed')
+  } catch {
+    /* 存不下也照常切 */
   }
 }
 

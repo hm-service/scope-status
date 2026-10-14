@@ -7,7 +7,7 @@
 ```nginx
 server {
     listen 443 ssl;
-    server_name friends.example.com;
+    server_name peers.example.com;
 
     location / {
         proxy_pass http://127.0.0.1:8080;
@@ -29,7 +29,7 @@ server {
 ## Caddy
 
 ```caddyfile
-friends.example.com {
+peers.example.com {
     reverse_proxy 127.0.0.1:8080 {
         flush_interval -1        # 立即刷出每一帧，等同于关缓冲
     }

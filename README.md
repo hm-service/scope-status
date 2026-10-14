@@ -18,7 +18,7 @@
 
 | 标签页 | 内容 |
 | --- | --- |
-| 状态 | 内网条目：一行一个，地址、最低延迟、连通性；按 `category` 分组、可折叠；点一行展开 `properties` |
+| 状态 | 顶部一张**内网拓扑图**（中继基建 + 双箭头接入，可折叠）；下面内网条目一行一个：地址、最低延迟、连通性；按 `category` 分组、可折叠；点一行展开 `properties` |
 | 服务 | 游戏服 / 站点后端：按 `protocol`（`udp` / `tcp` / `a2s`）探测；`connect_cmd` 可复制 |
 | 网站 | 链接：站点图标 + 名字可点开，显示 HTTP 状态与延迟（图标异步抓，慢站点不拖累探测） |
 | 消息 | 普通消息（所有人可见）与口令消息（服务端验口令）；支持附件；按时间戳倒序 |
@@ -26,6 +26,8 @@
 - 概况栏四个页面高度一致，切标签不抖；消息页显示「消息总数 / 待解锁 / 最近消息」。
 - 浅色 / 深色主题、中英双语，都记在 `localStorage`；≤560px 走卡片式布局（顶栏收进 `⋯`）。
 - SSE 断线自动重连；顶栏显示推送状态与「服务端每 Ns 推一次」。
+- 拓扑图完全在前端算：`kind: cloud`（`cloud_servers` 块）进「中继基建」，WG 链路按 `core` 推，其余条目用双箭头接入。
+- 拓扑图支持缩放/平移：滚轮或 `+` / `−` 缩放（也可以双击/复位回适应宽度），按住拖动平移。
 
 ![消息面板](docs/screenshot-messages.png)
 ![手机端](docs/screenshot-mobile.png)
@@ -71,7 +73,7 @@ cp source.example.yaml .data/source.yaml     # 先抄一份示例，再改成自
 配置路径写死成 `<DATA_DIR>/source.yaml`（容器里是 `/data/source.yaml`），没有环境变量能改它。里面通常有密码之类的敏感值，
 所以整个数据目录不入库，入库的只有 `source.example.yaml` 这份示例。
 
-顶层是 mapping，四块：`friends` / `services` / `links` / `categories`（`probe`、`title` 可选）。顶层直接写数组等价于 `friends`。
+顶层是 mapping，四块：`cloud_servers` / `peers` / `services` / `links`（`probe`、`title` 可选）。顶层直接写数组等价于 `peers`；分组不用声明，`peers` 按 `kind`、中继按「云服务器」、服务按 `category` 自动分组。
 
 ```yaml
 title: Scope Status          # 不写就用内置的「Scope Status」
@@ -83,37 +85,54 @@ probe:
   concurrency: 16          # 并发探测数
   count: 1                 # icmp 的 -c
 
-categories:
-  - id: friend
-    label: 朋友
-    order: 1
+# 中继服务器：拓扑图「中继基建」里的那几台；private 是隧道内地址，public 是公网入口（都是数组）
+cloud_servers:
+  - name: 云服务器-0
+    core: true             # WG 主干，整个文件只能有一个
+    private: [10.0.0.1]
+    public: [203.0.113.10]
+  - name: 云服务器-1
+    private: [10.0.1.1]
 
-friends:
+peers:
   - name: 小明
+    kind: friend           # 必填：friend | server，决定图标与分组
     note: 家里那台
-    category: friend       # 不写就是 friend
     addresses: ["10.0.0.2", "10.0.1.2"]       # 数组，IP 或域名，可带 :端口
     properties:            # 「名称: 值」的映射，按书写顺序展示
       面板账号: example-pass
+  - name: 游戏服务器
+    kind: server
+    addresses: ["10.0.0.9"]
 
 services:
   - name: CS 起源
     host: 10.0.0.9
     port: 27015
-    protocol: a2s          # udp | tcp | a2s
-    category: 服务器
+    protocol: a2s
+    category: 游戏服务器     # 只影响分组，不写就进内置「服务」组
     connect_cmd: connect 10.0.0.9:27015
-    properties:
-      版本: 1.6
 
 links:
   - name: 面板
     url: https://panel.example.com/
-    probe_url: https://panel.example.com/healthz   # 探测地址，不写就探 url
-    expect_status: 200                             # 状态码等于它才算通
+    probe_url: https://panel.example.com/healthz   # 不写就探 url
+    expect_status: 200
 ```
 
 校验是严格的：字段类型不对、`name` 为空、地址不是 IP / 域名、`port` 越界、`protocol` 不认识……都会在启动（或点「重载配置」）时**明确报错**，不做兜底。想改配置不必重启：改完点顶栏的「重载配置」（`POST /api/reload`），写坏了会原样把 YAML 的报错显示出来，旧配置继续生效。
+
+## 开发（前端 HMR）
+
+二进制里的前端是编译进 `frontend/dist` 的；改前端要热更新就开两个终端：
+
+```sh
+just frontend-stub && DATA_DIR=.data PORT=8080 go run .   # 终端 1：后端 API + SSE
+cd frontend && pnpm dev                                    # 终端 2：Vite，/api 代理到 8080
+```
+
+浏览器开 <http://127.0.0.1:5173/>：页面由 Vite 提供（改 `.vue` / `.ts` 立刻热更新），
+数据走 `/api` 代理到后端。后端端口不是 8080 就用 `BACKEND_URL=http://127.0.0.1:<port> pnpm dev`。
 
 ## 环境变量
 
@@ -240,7 +259,9 @@ podman kube play k8s.scope-status.yaml         # ConfigMap 注环境变量，PVC
 
 这一版是照 [go-web-template](https://github.com/hiromuraki/go-web-template) 的约定重写的 Go + Vue 版本，旧的 Python / Starlette + 原生 JS 实现整份归档在 `.prototype/python/`（只作参考，不再维护）：
 
-- 配置内容原样继续用（字段含义没变，只是挪到 `<DATA_DIR>/source.yaml`；个别地方更严格：类型不对就报错，不再隐式转换）。
+- 配置挪到 `<DATA_DIR>/source.yaml`，schema 有调整：顶层 `friends` → `peers`，条目要写 `kind`（`friend`/`server`），
+  中继服务器独立成 `cloud_servers`（`private` / `public` / `core`），`categories` 块取消（分组走内置名字）。
+  个别地方更严格：类型不对就报错，不隐式转换、不认别名。
 - 消息目录从 `<source.yaml 所在目录>/data/messages` 变成 `<DATA_DIR>/messages`；旧数据也一起归档在 `.prototype/python/data/`。
 - CLI 参数换成环境变量；`--stream-interval` → `STREAM_INTERVAL`。
 - 静态资源不再从磁盘目录读，而是编进二进制。

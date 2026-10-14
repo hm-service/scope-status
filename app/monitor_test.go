@@ -53,11 +53,10 @@ func closedAddress(t *testing.T) string {
 
 func tcpSource(t *testing.T, addresses ...string) *core.Source {
 	t.Helper()
-	body := "title: 测试\nprobe:\n  method: tcp\n  timeout: 0.5\nfriends:\n"
+	body := "title: 测试\nprobe:\n  method: tcp\n  timeout: 0.5\npeers:\n"
 	for index, address := range addresses {
-		body += fmt.Sprintf("  - name: 机器%d\n    addresses: [\"%s\"]\n", index, address)
+		body += fmt.Sprintf("  - name: 机器%d\n    kind: friend\n    addresses: [\"%s\"]\n", index, address)
 	}
-	body += "categories:\n  - id: friend\n    label: 朋友\n    order: 1\n"
 	return parseSource(t, body)
 }
 
@@ -80,11 +79,11 @@ func TestRefreshBuildsSnapshot(t *testing.T) {
 	if len(snapshot.Groups) != 1 || snapshot.Groups[0].Category.ID != "friend" || snapshot.Groups[0].Online != 1 {
 		t.Fatalf("分组不对：%+v", snapshot.Groups)
 	}
-	if !snapshot.Friends[0].Online || snapshot.Friends[0].LatencyMs == nil {
-		t.Fatalf("第一台应该通：%+v", snapshot.Friends[0])
+	if !snapshot.Peers[0].Online || snapshot.Peers[0].LatencyMs == nil {
+		t.Fatalf("第一台应该通：%+v", snapshot.Peers[0])
 	}
-	if snapshot.Friends[1].Online || snapshot.Friends[1].Addresses[0].Status != core.StatusDown {
-		t.Fatalf("第二台应该不通：%+v", snapshot.Friends[1])
+	if snapshot.Peers[1].Online || snapshot.Peers[1].Addresses[0].Status != core.StatusDown {
+		t.Fatalf("第二台应该不通：%+v", snapshot.Peers[1])
 	}
 	if snapshot.Method != core.MethodTCP || snapshot.GeneratedAt.IsZero() {
 		t.Fatalf("快照元信息不对：%+v", snapshot)
@@ -92,7 +91,7 @@ func TestRefreshBuildsSnapshot(t *testing.T) {
 }
 
 func TestProbeFailureSurfaces(t *testing.T) {
-	source := parseSource(t, "probe:\n  method: tcp\n  timeout: 0.3\nfriends:\n  - name: 小明\n    addresses: [\"nope.invalid:1234\"]\n")
+	source := parseSource(t, "probe:\n  method: tcp\n  timeout: 0.3\npeers:\n  - name: 小明\n    kind: friend\n    addresses: [\"nope.invalid:1234\"]\n")
 	monitor := NewMonitor(source, "", 0)
 	_, err := monitor.Refresh()
 	if err == nil {
@@ -175,7 +174,7 @@ func TestSubscriberQueueDropsOldest(t *testing.T) {
 }
 
 func TestStreamLoopStopsOnProbeFailure(t *testing.T) {
-	source := parseSource(t, "probe:\n  method: tcp\n  timeout: 0.2\nfriends:\n  - name: 小明\n    addresses: [\"nope.invalid:1\"]\n")
+	source := parseSource(t, "probe:\n  method: tcp\n  timeout: 0.2\npeers:\n  - name: 小明\n    kind: friend\n    addresses: [\"nope.invalid:1\"]\n")
 	monitor := NewMonitor(source, "", 10*time.Millisecond)
 	done := make(chan struct{})
 	go func() {
@@ -224,8 +223,8 @@ func TestReload(t *testing.T) {
 			t.Fatalf("写配置失败：%v", err)
 		}
 	}
-	write("friends:\n  - name: 小明\n    addresses: [\"127.0.0.1:1\"]\n")
-	source, err := core.ParseSource(sourceFile, []byte("friends:\n  - name: 小明\n    addresses: [\"127.0.0.1:1\"]\n"))
+	write("peers:\n  - name: 小明\n    kind: friend\n    addresses: [\"127.0.0.1:1\"]\n")
+	source, err := core.ParseSource(sourceFile, []byte("peers:\n  - name: 小明\n    kind: friend\n    addresses: [\"127.0.0.1:1\"]\n"))
 	if err != nil {
 		t.Fatalf("解析失败：%v", err)
 	}
@@ -235,23 +234,23 @@ func TestReload(t *testing.T) {
 		t.Fatalf("探测失败：%v", err)
 	}
 
-	write("friends:\n  - name: 小明\n    addresses: [\"127.0.0.1:1\"]\n  - name: 小红\n    addresses: [\"127.0.0.1:2\"]\n")
+	write("peers:\n  - name: 小明\n    kind: friend\n    addresses: [\"127.0.0.1:1\"]\n  - name: 小红\n    kind: friend\n    addresses: [\"127.0.0.1:2\"]\n")
 	reloaded, err := monitor.Reload()
 	if err != nil {
 		t.Fatalf("重载失败：%v", err)
 	}
-	if len(reloaded.Friends) != 2 || monitor.ReloadCount() != 1 {
-		t.Fatalf("重载结果不对：%d / %d", len(reloaded.Friends), monitor.ReloadCount())
+	if len(reloaded.Peers) != 2 || monitor.ReloadCount() != 1 {
+		t.Fatalf("重载结果不对：%d / %d", len(reloaded.Peers), monitor.ReloadCount())
 	}
 	if monitor.Current() != nil {
 		t.Fatal("换了配置要丢掉旧快照")
 	}
 
-	write("friends: 1\n")
+	write("peers: 1\n")
 	if _, err := monitor.Reload(); err == nil {
 		t.Fatal("配置写坏了应该报错")
 	}
-	if got := len(monitor.Source().Friends); got != 2 {
+	if got := len(monitor.Source().Peers); got != 2 {
 		t.Fatalf("写坏了要保留旧配置，现在有 %d 个条目", got)
 	}
 }

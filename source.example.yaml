@@ -1,4 +1,4 @@
-# 复制成 source.yaml 再改：cp source.example.yaml source.yaml
+# 复制成 <DATA_DIR>/source.yaml 再改
 #
 # source.yaml 里通常有密码之类的敏感值，所以它被 .gitignore 排除了，别提交、别贴给别人。
 title: Scope Status
@@ -10,32 +10,43 @@ probe:
   concurrency: 16          # 并发探测数
   count: 1                 # icmp 的 -c
 
-categories:
-  - id: friend
-    label: 朋友
-    order: 1
-  - id: server
-    label: 服务器
-    order: 2
+# 中继服务器：拓扑图「中继基建」里的那几台（类型固定是 cloud）。
+# private = 隧道内地址，public = 公网入口，都是数组、可以写多个，探测时全都探。
+# core: true = WG 主干（整个文件只能有一个）；基建里的 WG 链路按它推：主干 ↔ 其余每一台。
+cloud_servers:
+  - name: 云服务器-0
+    core: true
+    private: [10.0.0.1]
+    public: [203.0.113.10]        # TEST-NET 示例地址
+  - name: 云服务器-1
+    private: [10.0.1.1]
+    public: [203.0.113.11]
 
-friends:
+# 内网条目：kind 决定图标与分组（friend = 朋友，server = 服务器）；
+# addresses 里任意一个通，整行就算在线
+peers:
   - name: 小明
+    kind: friend
     note: 家里那台
-    category: friend
     addresses: ["10.0.0.2", "10.0.1.2"]
     properties:
       备注: 改成自己的值
+  - name: 游戏服务器
+    kind: server
+    addresses: ["10.0.0.9"]
 
+# 服务：protocol = udp（默认）| tcp | a2s；category 只影响分组（不写就进内置「服务」组）
 services:
   - name: CS 起源
     host: 10.0.0.9
     port: 27015
     protocol: a2s
-    category: server
+    category: 游戏服务器
     connect_cmd: connect 10.0.0.9:27015
     properties:
       版本: 1.6
 
+# 网站：url 是给人点开的；probe_url 是探测地址，不写就探 url 本身
 links:
   # 探测地址要能解析：解析不了是硬错误，会把 SSE 循环直接停掉
   - name: 示例站点
