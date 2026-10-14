@@ -126,6 +126,8 @@ export interface MessagesFrame {
   messages: Message[]
   summary?: {
     total: number
+    /** 所有消息里最近一次活动（编辑也算）的 Unix 毫秒；前端拿它记「读到这儿」。 */
+    latestAt?: number
   }
 }
 

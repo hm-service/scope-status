@@ -16,7 +16,7 @@ import { linksTabCount, servicesTabCount, state, switchTab, TABS } from '../stor
       :aria-selected="tab.id === state.tab"
       @click="switchTab(tab.id)"
     >
-      {{ t(tab.labelKey) }}
+      {{ tab.id === 'messages' && state.unread > 0 ? t('tabs.messagesUnread', { count: state.unread }) : t(tab.labelKey) }}
       <span v-if="tab.id === 'services'" class="tab-count" id="tab-services-count">{{ servicesTabCount }}</span>
       <span v-else-if="tab.id === 'links'" class="tab-count" id="tab-links-count">{{ linksTabCount }}</span>
     </button>

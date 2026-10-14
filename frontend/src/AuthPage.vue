@@ -55,15 +55,14 @@ onMounted(() => {
   <div class="auth-shell">
     <form class="auth-card" id="auth-form" @submit.prevent="submit">
       <h1 class="auth-title">{{ t('app.title') }}</h1>
-      <p class="auth-subtitle">{{ t('auth.subtitle') }}</p>
       <div class="auth-field">
-        <label class="field-label" for="auth-token">{{ t('auth.label') }}</label>
         <input
           id="auth-token"
           ref="inputRef"
           v-model="token"
           type="password"
           autocomplete="off"
+          :aria-label="t('auth.placeholder')"
           :placeholder="t('auth.placeholder')"
         />
       </div>
@@ -71,7 +70,6 @@ onMounted(() => {
       <button class="btn btn-primary btn-block" id="auth-submit" type="submit" :disabled="busy">
         {{ busy ? t('auth.checking') : t('auth.submit') }}
       </button>
-      <p class="auth-hint">{{ t('auth.hint') }}</p>
     </form>
   </div>
 </template>

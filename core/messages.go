@@ -108,11 +108,23 @@ type MessageView struct {
 
 type MessageSummary struct {
 	Total int `json:"total"`
+	// LatestAt 是当前所有未删除消息里最近一次活动的 Unix 毫秒（空就是 0），不受筛选影响。
+	// 前端把「读到这儿」记成这个数，未读只跟它比大小。
+	LatestAt int64 `json:"latestAt"`
 }
 
 type MessagesPayload struct {
 	Messages []MessageView  `json:"messages"`
 	Summary  MessageSummary `json:"summary"`
+}
+
+// Activity 是这条消息最近一次动的时刻（Unix 毫秒）：编辑也算动，未读判定按它比。
+func (m *Message) Activity() int64 {
+	created := m.CreatedAt.UnixMilli()
+	if m.UpdatedAt != nil && *m.UpdatedAt > created {
+		return *m.UpdatedAt
+	}
+	return created
 }
 
 func (m *Message) View() MessageView {

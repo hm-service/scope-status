@@ -111,6 +111,31 @@ func TestCleanFileNameRejects(t *testing.T) {
 	}
 }
 
+// 未读按「最近一次活动」算：编辑过就算编辑时间，没编辑过就是创建时间。
+func TestMessageActivity(t *testing.T) {
+	created := time.Date(2026, 10, 14, 12, 0, 0, 0, time.Local)
+	stamp := func(value int64) *int64 { return &value }
+
+	cases := []struct {
+		name      string
+		updatedAt *int64
+		want      int64
+	}{
+		{"没编辑过就是创建时间", nil, created.UnixMilli()},
+		{"编辑过就用编辑时间", stamp(created.UnixMilli() + 5000), created.UnixMilli() + 5000},
+		{"编辑时间与创建时间相同", stamp(created.UnixMilli()), created.UnixMilli()},
+		{"编辑时间早于创建时间（不该发生）仍按创建时间", stamp(created.UnixMilli() - 1), created.UnixMilli()},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			message := Message{CreatedAt: created, UpdatedAt: testCase.updatedAt}
+			if got := message.Activity(); got != testCase.want {
+				t.Fatalf("Activity = %d，想要 %d", got, testCase.want)
+			}
+		})
+	}
+}
+
 func TestMessageViews(t *testing.T) {
 	message := &Message{
 		ID:        "message-2026-10-12-23-30-54-0852-abc123",

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/hm-service/scope-status/core"
 	"github.com/hm-service/scope-status/httpx"
@@ -22,14 +23,32 @@ type messageDeleteView struct {
 	RemovedFiles []string `json:"removedFiles"`
 }
 
-// GET /api/messages
+// GET /api/messages：不带参数给全部；?since=<Unix 毫秒> 只要「最近一次活动」晚于该时刻的消息。
 func (s *Server) handleMessageList(w http.ResponseWriter, r *http.Request) {
-	payload, err := s.opts.App.Messages.Payload()
+	since, err := sinceParam(r)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	payload, err := s.opts.App.Messages.PayloadSince(since)
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, payload)
+}
+
+// sinceParam 解析 ?since=：不写（或只有空白）就是 0，也就是全部；写了就必须是非负整数毫秒。
+func sinceParam(r *http.Request) (int64, error) {
+	raw := strings.TrimSpace(r.URL.Query().Get("since"))
+	if raw == "" {
+		return 0, nil
+	}
+	since, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || since < 0 {
+		return 0, core.BadRequest(i18n.KeyMessageSinceInvalid, raw)
+	}
+	return since, nil
 }
 
 // POST /api/messages

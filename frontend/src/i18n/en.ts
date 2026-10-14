@@ -4,15 +4,12 @@ import type { I18nKey } from './zh'
 const en: Record<I18nKey, string> = {
   'app.title': 'Scope Status',
 
-  'auth.subtitle': 'This dashboard needs an access token',
-  'auth.label': 'Access token (AUTH_TOKEN)',
-  'auth.placeholder': 'paste the server AUTH_TOKEN',
+  'auth.placeholder': 'Enter the access key',
   'auth.submit': 'Enter',
   'auth.checking': 'Checking…',
   'auth.failed': 'Check failed: {message}',
   'auth.noSession': 'the server returned no session, try again',
   'auth.noStorage': 'this browser refuses localStorage, so the session cannot be kept — try another browser or a normal window',
-  'auth.hint': 'The token is sent once at login. The browser keeps a signed session token with an expiry; sign in again once it lapses.',
 
   'topbar.connecting': 'Connecting…',
   'topbar.notUpdated': 'No update yet',
@@ -60,6 +57,7 @@ const en: Record<I18nKey, string> = {
   'tabs.services': 'Services',
   'tabs.links': 'Websites',
   'tabs.messages': 'Messages',
+  'tabs.messagesUnread': 'Messages (unread: {count})',
 
   'columns.device': 'Device',
   'columns.status': 'Status',

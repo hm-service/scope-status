@@ -86,6 +86,13 @@ export async function listMessages(): Promise<MessagesFrame> {
   return (await response.json()) as MessagesFrame
 }
 
+/** 只要「最近一次活动」晚于 since（Unix 毫秒）的消息：未读数就是它的 summary.total。 */
+export async function listMessagesSince(since: number): Promise<MessagesFrame> {
+  const response = await send(`/api/messages?since=${since}`, { headers: baseHeaders(), cache: 'no-store' })
+  if (!response.ok) throw await errorFrom(response)
+  return (await response.json()) as MessagesFrame
+}
+
 export async function createMessage(body: MessageInput): Promise<Message> {
   const response = await send('/api/messages', {
     method: 'POST',

@@ -11,6 +11,8 @@ import { formatTime, shortStamp, tickNow } from './utils/time'
 
 const STREAM_SILENCE_MS = 30000
 const TOPOLOGY_STORAGE_KEY = 'scope-status-topology'
+// 读到哪儿的记号：所有消息里最近一次活动的 Unix 毫秒
+const MESSAGES_READ_KEY = 'scope-status-messages-read'
 
 export type TabId = 'network' | 'services' | 'links' | 'messages'
 export type Theme = 'light' | 'dark'
@@ -48,6 +50,9 @@ export const state = reactive({
   topologyOpen: storedTopologyOpen(),
   snapshot: null as Snapshot | null,
   messages: [] as Message[],
+  // 消息那屏最近一次活动的时刻（服务端给的 summary.latestAt），以及没读过的条数
+  messagesLatestAt: 0,
+  unread: 0,
   collapsed: new Set<string>(),
   expanded: new Set<string>(),
   stream: 'connecting' as StreamState,
@@ -227,6 +232,8 @@ export function switchTab(tabId: string): void {
   if (location.hash.slice(1) !== state.tab) {
     history.replaceState(null, '', state.tab === 'network' ? location.pathname : `#${state.tab}`)
   }
+  // 切到消息就算读过了；切走就算一次未读
+  void refreshUnread()
 }
 
 /** 拓扑图默认展开；用户折过一次以后记住。 */
@@ -299,6 +306,59 @@ export function checkStreamHealth(): void {
 /** 服务端推来的消息列表（连上 SSE 先给一帧，之后每次有增删改再给）。 */
 export function applyMessages(frame: MessagesFrame): void {
   state.messages = frame && Array.isArray(frame.messages) ? frame.messages : []
+  state.messagesLatestAt = frame?.summary?.latestAt ?? 0
+  // 列表一变未读就可能变：重算一次
+  void refreshUnread()
+}
+
+/** 上次读到哪儿：所有消息里最近一次活动的 Unix 毫秒；没读过就是 0。 */
+export function lastReadAt(): number {
+  try {
+    const saved = Number.parseInt(localStorage.getItem(MESSAGES_READ_KEY) ?? '', 10)
+    return Number.isFinite(saved) && saved > 0 ? saved : 0
+  } catch {
+    return 0
+  }
+}
+
+/** 打开消息时把「读到这儿」记下来。存不下就只清当前显示，下次还会提示未读。 */
+function markMessagesRead(): void {
+  state.unread = 0
+  if (state.messagesLatestAt <= lastReadAt()) return
+  try {
+    localStorage.setItem(MESSAGES_READ_KEY, String(state.messagesLatestAt))
+  } catch {
+    /* 隐私窗口存不下：不提示未读，但也别把它当成读过 */
+  }
+}
+
+/**
+ * 未读数由服务端算（`?since=`）：判定规则只写在 app.PayloadSince 一处，前端不重复实现。
+ * 人正看着消息那屏就当作已读；切走之后再问一次服务端。
+ */
+export async function refreshUnread(): Promise<void> {
+  if (messagesTabActive()) {
+    markMessagesRead()
+    return
+  }
+  if (state.messagesLatestAt <= lastReadAt()) {
+    state.unread = 0
+    return
+  }
+  const asked = state.messagesLatestAt
+  try {
+    const frame = await api.listMessagesSince(lastReadAt())
+    // 等回来的路上可能已经切到消息页（那就算读过）或者又来了新消息：别用旧答案覆盖
+    if (messagesTabActive() || state.messagesLatestAt !== asked) return
+    state.unread = frame.summary?.total ?? 0
+  } catch {
+    // 数不出来就不在 tab 上显示未读，别拿错误打扰人
+    state.unread = 0
+  }
+}
+
+function messagesTabActive(): boolean {
+  return state.tab === 'messages'
 }
 
 export async function deleteMessage(id: string): Promise<void> {

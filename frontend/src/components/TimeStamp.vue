@@ -15,5 +15,13 @@ const title = computed(() =>
 </script>
 
 <template>
-  <span class="msg-time" :title="title"><span class="msg-ago">{{ relativeTime(createdAt) }}</span> · <span class="msg-abs">{{ created }}</span><template v-if="updatedAt"> · <span class="msg-edited" :title="t('messages.editedAt', { time: updated })">{{ t('messages.edited') }}</span></template></span>
+  <span class="msg-time" :title="title">
+    <span class="msg-ago">{{ relativeTime(createdAt) }}</span>
+    <span class="msg-sep" aria-hidden="true">·</span>
+    <span class="msg-abs">{{ created }}</span>
+    <template v-if="updatedAt">
+      <span class="msg-sep" aria-hidden="true">·</span>
+      <span class="msg-edited" :title="t('messages.editedAt', { time: updated })">{{ t('messages.edited') }}</span>
+    </template>
+  </span>
 </template>

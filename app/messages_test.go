@@ -92,6 +92,68 @@ func TestFailedMutationDoesNotBroadcast(t *testing.T) {
 	}
 }
 
+// PayloadSince 只给「最近一次活动」晚于 since 的消息，概览的总数跟着变，LatestAt 不受筛选影响。
+func TestPayloadSinceFiltersByActivity(t *testing.T) {
+	service, _ := newMessageService(t)
+	store := service.Store()
+	base := time.Date(2026, 10, 14, 12, 0, 0, 0, time.Local)
+
+	// 时间要可控：直接写存储，不靠 sleep
+	older, err := store.Create("旧的", nil, base)
+	if err != nil {
+		t.Fatalf("建消息失败：%v", err)
+	}
+	if _, err := store.Create("新的", nil, base.Add(time.Minute)); err != nil {
+		t.Fatalf("建消息失败：%v", err)
+	}
+	// 编辑旧的那条：它的活动时间因此变成最新的
+	if _, err := store.Update(older.ID, ptr("旧的（刚改）"), nil, false, base.Add(2*time.Minute).UnixMilli()); err != nil {
+		t.Fatalf("改消息失败：%v", err)
+	}
+	newest := base.Add(2 * time.Minute).UnixMilli()
+
+	all, err := service.PayloadSince(0)
+	if err != nil {
+		t.Fatalf("取列表失败：%v", err)
+	}
+	if all.Summary.Total != 2 || len(all.Messages) != 2 {
+		t.Fatalf("since=0 应该给全部：%+v / %d 条", all.Summary, len(all.Messages))
+	}
+	if all.Summary.LatestAt != newest {
+		t.Fatalf("LatestAt = %d，想要 %d", all.Summary.LatestAt, newest)
+	}
+
+	cases := []struct {
+		name      string
+		since     time.Time
+		wantTotal int
+		wantIDs   []string
+	}{
+		{"比创建时间新：两条都在", base.Add(30 * time.Second), 2, nil},
+		{"只有改过的那条更新", base.Add(90 * time.Second), 1, []string{older.ID}},
+		{"比谁都新：一条都没有", base.Add(3 * time.Minute), 0, []string{}},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			payload, err := service.PayloadSince(testCase.since.UnixMilli())
+			if err != nil {
+				t.Fatalf("取列表失败：%v", err)
+			}
+			if payload.Summary.Total != testCase.wantTotal || len(payload.Messages) != testCase.wantTotal {
+				t.Fatalf("条数 = %d/%d，想要 %d", payload.Summary.Total, len(payload.Messages), testCase.wantTotal)
+			}
+			if payload.Summary.LatestAt != newest {
+				t.Fatalf("LatestAt = %d，想要 %d（不该被筛选影响）", payload.Summary.LatestAt, newest)
+			}
+			for index, id := range testCase.wantIDs {
+				if payload.Messages[index].ID != id {
+					t.Fatalf("第 %d 条 = %s，想要 %s", index, payload.Messages[index].ID, id)
+				}
+			}
+		})
+	}
+}
+
 func TestUpdatedAtStamped(t *testing.T) {
 	service, _ := newMessageService(t)
 	message, err := service.Create("原文", nil)

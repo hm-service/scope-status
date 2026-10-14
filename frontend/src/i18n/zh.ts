@@ -2,15 +2,12 @@
 const zh = {
   'app.title': 'Scope Status',
 
-  'auth.subtitle': '这个看板需要访问口令',
-  'auth.label': '访问口令（AUTH_TOKEN）',
-  'auth.placeholder': '粘贴服务端 AUTH_TOKEN 的值',
+  'auth.placeholder': '输入认证密钥',
   'auth.submit': '进入',
   'auth.checking': '校验中…',
   'auth.failed': '校验失败：{message}',
   'auth.noSession': '服务端没有返回会话，稍后再试',
   'auth.noStorage': '浏览器不让写 localStorage，存不下会话，请换一个浏览器或用非隐私窗口',
-  'auth.hint': '口令只在登录时发一次；浏览器里保存的是服务端签发的会话令牌，有效期有限，过期后再登录一次。',
 
   'topbar.connecting': '连接中…',
   'topbar.notUpdated': '尚未收到推送',
@@ -58,6 +55,7 @@ const zh = {
   'tabs.services': '服务',
   'tabs.links': '网站',
   'tabs.messages': '消息',
+  'tabs.messagesUnread': '消息（未读：{count}）',
 
   'columns.device': '设备',
   'columns.status': '状态',

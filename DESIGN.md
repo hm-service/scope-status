@@ -39,7 +39,7 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 | 状态   | 内网条目：一行一个，地址、延迟、连通性；按 `category` 分组，可折叠 |
 | 服务   | 游戏服 / 站点后端：按 `protocol` 探测；`connect_cmd` 可复制        |
 | 网站   | 链接：站点图标 + 名字可点开；显示 HTTP 状态                        |
-| 消息   | 文本与附件；不分类型，进站的人都能看；按时间戳倒序                 |
+| 消息   | 文本与附件；不分类型，进站的人都能看；按时间戳倒序；标签上带未读数    |
 
 - 每页顶部一条概况栏（总数 / 在线 / 离线，消息页是总数 / 最近消息），四个页高度一致，
   切换标签不抖。
@@ -88,7 +88,7 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 | `GET`        | `/api/events`                           | SSE：先补一帧 `messages`，再推 `snapshot` / `messages`       |
 | `POST` `GET` | `/api/reload`                           | 重读 `<DATA_DIR>/source.yaml`，成功则立刻探一次              |
 | `GET`        | `/api/health`                           | 运行状态与计数                                               |
-| `GET`        | `/api/messages`                         | 未删除消息列表（每条都是完整内容）                           |
+| `GET`        | `/api/messages`                         | 未删除消息列表（每条都是完整内容）；`?since=<Unix 毫秒>` 只要「最近一次活动」晚于该时刻的 |
 | `POST`       | `/api/messages`                         | 新建；`201`                                                  |
 | `GET`        | `/api/messages/{id}`                    | 看一条                                                       |
 | `PATCH`      | `/api/messages/{id}`                    | 改正文 / 附件                                                |
@@ -296,6 +296,9 @@ data: {…快照，多一个 "reused": false…}
   浏览器进站先看 `localStorage` 里有没有 token，没有就去 `/auth`；任何 API 回 `401` 就清掉本地 token 并回认证页。
 - token 就存在 `localStorage` 里：页面用 Vue 的插值渲染消息，没有任何用户内容进 `innerHTML`，
   不存在把 token 读走的注入点。
+- 未读只有浏览器一侧知道：读到哪儿的记号（`scope-status-messages-read`，值是消息「最近一次活动」的 Unix 毫秒）
+  存 `localStorage`，服务端不存任何人的读状态；未读数就是拿这个记号问 `GET /api/messages?since=` 得到的
+  `summary.total`。人正看着消息那屏就算已读，切走时再问一次。
 - 消息的正文与附件对所有进站的人可见、可改、可删；盘上是明文，没有第二种可见性。
 - 应用不做 TLS / 限流，交给反代；应用只做输入上限与校验（体积、字段长度、类型）。
 - 附件名只取最后一段并去掉控制字符，不当路径用。

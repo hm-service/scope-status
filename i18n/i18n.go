@@ -129,6 +129,7 @@ const (
 	KeyMessageFileUpdatedAt  Key = "messages.error.file-updated-at"
 	KeyMessageBodyTooBig     Key = "messages.error.body-too-big"
 	KeyMessageBodyType       Key = "messages.error.body-type"
+	KeyMessageSinceInvalid   Key = "messages.error.since-invalid"
 )
 
 // HTTP 层。
@@ -258,6 +259,7 @@ var zh = map[Key]string{
 	KeyMessageFileUpdatedAt:  "%s 的 updatedAt 不是整数",
 	KeyMessageBodyTooBig:     "请求体超过 %d 字节",
 	KeyMessageBodyType:       "请求体字段 %s 类型不对",
+	KeyMessageSinceInvalid:   "since 要的是 Unix 毫秒时间戳，收到 %q",
 
 	KeyAppTitle:             "Scope Status",
 	KeyHTTPNotFound:         "接口不存在：%s",
@@ -381,6 +383,7 @@ var en = map[Key]string{
 	KeyMessageFileUpdatedAt:  "updatedAt of %s is not an integer",
 	KeyMessageBodyTooBig:     "request body exceeds %d bytes",
 	KeyMessageBodyType:       "field %s of the request body has the wrong type",
+	KeyMessageSinceInvalid:   "since wants a Unix millisecond timestamp, got %q",
 
 	KeyAppTitle:             "Scope Status",
 	KeyHTTPNotFound:         "no such endpoint: %s",

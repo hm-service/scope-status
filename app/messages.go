@@ -21,17 +21,31 @@ func (s *MessageService) Store() *store.MessageStore { return s.store }
 
 // Payload 给前端一屏消息：每条都给完整内容。
 func (s *MessageService) Payload() (core.MessagesPayload, error) {
+	return s.PayloadSince(0)
+}
+
+// PayloadSince 只给「最近一次活动」晚于 since（Unix 毫秒）的消息：since = 0 就是全部。
+// 未读的规则只写在这一处，前端把上次读到的时刻存下来，用这个接口问数量。
+func (s *MessageService) PayloadSince(since int64) (core.MessagesPayload, error) {
 	messages, err := s.store.List()
 	if err != nil {
 		return core.MessagesPayload{}, err
 	}
 	views := make([]core.MessageView, 0, len(messages))
+	latest := int64(0)
 	for index := range messages {
+		activity := messages[index].Activity()
+		if activity > latest {
+			latest = activity
+		}
+		if activity <= since {
+			continue
+		}
 		views = append(views, messages[index].View())
 	}
 	return core.MessagesPayload{
 		Messages: views,
-		Summary:  core.MessageSummary{Total: len(messages)},
+		Summary:  core.MessageSummary{Total: len(views), LatestAt: latest},
 	}, nil
 }
 
