@@ -179,7 +179,7 @@ Vite 那边把 `/auth` 改写成 `auth.html`（线上是后端做的这件事）
 ```bash
 AUTH_TOKEN=scope_status_token_0123456789
 SESSION=$(curl -s -X POST -d "{\"token\":\"$AUTH_TOKEN\"}" localhost:8080/api/auth | jq -r .token)  # 登录，换会话
-curl -s -H "Authorization: Bearer $SESSION" localhost:8080/api/health | jq            # 运行状态与计数
+curl -s -H "Authorization: Bearer $SESSION" localhost:8080/api/stats | jq            # 运维诊断：进程内部状态与计数
 curl -s -H "Authorization: Bearer $SESSION" 'localhost:8080/api/status?force=1' | jq  # 立刻探一次
 curl -sN -H "Authorization: Bearer $SESSION" localhost:8080/api/events                # SSE：messages / snapshot / hello
 curl -s -X POST -H "Authorization: Bearer $SESSION" localhost:8080/api/reload | jq .message
@@ -195,7 +195,7 @@ curl -s -X POST -H "Authorization: Bearer $SESSION" localhost:8080/api/reload | 
 
 ```bash
 SESSION=$(curl -s -X POST -d "{\"token\":\"$AUTH_TOKEN\"}" localhost:8080/api/auth | jq -r .token)
-curl -s -H "Authorization: Bearer $SESSION" localhost:8080/api/health | jq
+curl -s -H "Authorization: Bearer $SESSION" localhost:8080/api/stats | jq
 ```
 
 会话是**无状态签名 token**：`<base64url(exp|nonce)>.<base64url(HMAC-SHA256(key,"v1|" + 前面那段))>`，

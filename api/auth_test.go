@@ -59,7 +59,7 @@ func TestEveryAPIRouteIsGuarded(t *testing.T) {
 	requests := [][2]string{
 		{http.MethodGet, "/api/status"},
 		{http.MethodGet, "/api/events"},
-		{http.MethodGet, "/api/health"},
+		{http.MethodGet, "/api/stats"},
 		{http.MethodGet, "/api/reload"},
 		{http.MethodPost, "/api/reload"},
 		{http.MethodGet, "/api/messages"},
@@ -95,7 +95,7 @@ func TestAuthEndpoint(t *testing.T) {
 		t.Fatalf("响应里不该回显原始 token：%s", ok.body)
 	}
 	// 签出来的会话立刻可用；两条会话互不影响
-	used := callWith(t, env, env.RawClient, http.MethodGet, "/api/health", "", [2]string{"Authorization", "Bearer " + issued.Token})
+	used := callWith(t, env, env.RawClient, http.MethodGet, "/api/stats", "", [2]string{"Authorization", "Bearer " + issued.Token})
 	if used.status != http.StatusOK {
 		t.Fatalf("新会话应该能用，拿到 %d（%s）", used.status, used.body)
 	}

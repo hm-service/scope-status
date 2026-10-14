@@ -22,7 +22,7 @@ func (s *Server) routes() []apiRoute {
 		{http.MethodGet, "/api/events", s.handleEvents},
 		{http.MethodGet, "/api/reload", s.handleReload},
 		{http.MethodPost, "/api/reload", s.handleReload},
-		{http.MethodGet, "/api/health", s.handleHealth},
+		{http.MethodGet, "/api/stats", s.handleStats},
 		{http.MethodGet, "/api/messages", s.handleMessageList},
 		{http.MethodPost, "/api/messages", s.handleMessageCreate},
 		{http.MethodPut, "/api/messages/files", s.handleFileUpload},

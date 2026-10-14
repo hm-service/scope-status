@@ -26,8 +26,8 @@ func TestConcurrencyGatesAreIndependent(t *testing.T) {
 	quick := &http.Client{Transport: env.Client.Transport, Timeout: 700 * time.Millisecond}
 
 	// 业务端点：闸门占满了就该等着，等不到就放弃
-	if _, err := quick.Get(env.BaseURL + "/api/health"); err == nil {
-		t.Fatal("业务闸门已占满，/api/health 不该还能进")
+	if _, err := quick.Get(env.BaseURL + "/api/stats"); err == nil {
+		t.Fatal("业务闸门已占满，/api/stats 不该还能进")
 	}
 	// /livez 不设闸：活着就要答得上
 	if got := callWith(t, env, quick, http.MethodGet, "/livez", ""); got.status != http.StatusOK {

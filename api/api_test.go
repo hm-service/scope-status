@@ -501,7 +501,7 @@ func TestErrorBodyAndHeaders(t *testing.T) {
 		}
 	}
 
-	wrong := call(t, env, http.MethodDelete, "/api/health", "")
+	wrong := call(t, env, http.MethodDelete, "/api/stats", "")
 	if wrong.status != http.StatusMethodNotAllowed {
 		t.Fatalf("方法不对应该 405，拿到 %d（%s）", wrong.status, wrong.body)
 	}
@@ -577,7 +577,7 @@ func TestHealthAndProbes(t *testing.T) {
 		} `json:"messages"`
 		MessagesDir    string `json:"messagesDir"`
 		MaxUploadBytes int64  `json:"maxUploadBytes"`
-	}](t, call(t, env, http.MethodGet, "/api/health", "").body)
+	}](t, call(t, env, http.MethodGet, "/api/stats", "").body)
 	if health.Status != "ok" || health.Peers != 1 || health.MaxUploadBytes != 1024*1024 {
 		t.Fatalf("健康信息不对：%+v", health)
 	}

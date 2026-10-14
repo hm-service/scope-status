@@ -12,7 +12,7 @@ import (
 	"github.com/hm-service/scope-status/store"
 )
 
-type healthView struct {
+type statsView struct {
 	Status         string             `json:"status"`
 	Peers          int                `json:"peers"`
 	Services       int                `json:"services"`
@@ -78,7 +78,10 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+// GET /api/stats：运维诊断口，给人和脚本看进程内部状态——条目/服务/链接计数、订阅者数、
+// 最近一轮探测耗时、生效的配置路径、消息与附件统计。探针不吐这些：/livez 只回 ok，
+// /readyz 只回答就绪与否（失败细节只进日志）。
+func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	monitor := s.opts.App.Monitor
 	source := monitor.Source()
 	stats, err := s.opts.App.Messages.Stats()
@@ -90,7 +93,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	for _, category := range source.Categories {
 		categories = append(categories, category.ID)
 	}
-	httpx.JSON(w, http.StatusOK, healthView{
+	httpx.JSON(w, http.StatusOK, statsView{
 		Status:         "ok",
 		Peers:          len(source.Peers),
 		Services:       len(source.Services),

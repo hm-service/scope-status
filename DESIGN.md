@@ -30,7 +30,7 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 - 三个密钥（`AUTH_TOKEN` / `SESSION_SIGNING_KEY` / `READYZ_TOKEN`）走 `k8s.scope-status.yaml` 里的 `Secret`
   （`envFrom.secretRef`），清单里只是占位值，部署前必须换掉；`ConfigMap` 只放非敏感项。
 - 启动即失败：`AUTH_TOKEN` / `SESSION_SIGNING_KEY` 没设或形状不合规 / 配置文件不存在 / 解析不通过 / 数据目录不存在或不可写，进程直接报错退出，不做任何降级。
-- 配置路径没有第二个来源，也没有环境变量能改它；改 `DATA_DIR` 就等于改配置路径，界面上与 `/api/health` 里显示的永远是当前生效的那一份。
+- 配置路径没有第二个来源，也没有环境变量能改它；改 `DATA_DIR` 就等于改配置路径，界面上与 `/api/stats` 里显示的永远是当前生效的那一份。
 - Kube 部署时 `<DATA_DIR>/source.yaml` 由人手动放进卷（`podman cp` 或宿主目录型 PV），清单里不挂它。
 - 工具链版本在 `go.mod`、`Dockerfile`、CI、`frontend/package.json` 四处对齐（当前 go 1.27.2 / node 26.7.0 / pnpm 12.13.0）。
 
@@ -94,7 +94,7 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 | `GET`        | `/api/status?force=1`                   | 强制探一次再回                                               |
 | `GET`        | `/api/events`                           | SSE：先补一帧 `messages`，再推 `snapshot` / `messages`       |
 | `POST` `GET` | `/api/reload`                           | 重读 `<DATA_DIR>/source.yaml`，成功则立刻探一次              |
-| `GET`        | `/api/health`                           | 运行状态与计数                                               |
+| `GET`        | `/api/stats`                           | 运维诊断：进程内部状态与计数（探针不吐这些，别当健康检查用） |
 | `GET`        | `/api/messages`                         | 未删除消息列表（每条都是完整内容）；`?since=<Unix 毫秒>` 只要「最近一次活动」晚于该时刻的 |
 | `POST`       | `/api/messages`                         | 新建；`201`                                                  |
 | `GET`        | `/api/messages/{id}`                    | 看一条                                                       |

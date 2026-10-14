@@ -18,7 +18,7 @@ func TestSecurityHeadersOnTheWire(t *testing.T) {
 	}{
 		{"静态首页", "/", http.StatusOK},
 		{"探针", "/livez", http.StatusOK},
-		{"未鉴权 API", "/api/health", http.StatusUnauthorized},
+		{"未鉴权 API", "/api/stats", http.StatusUnauthorized},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
