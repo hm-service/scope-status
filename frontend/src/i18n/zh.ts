@@ -112,6 +112,7 @@ const zh = {
   'topology.note': '双箭头 = 这个节点接进中继基建；基建内部的 WG 链路单独一层。',
 
   'empty.peers': 'source.yaml 里还没有内网条目，先添加一项吧。',
+  'empty.waiting': '还没收到服务端的快照——先等一下；一直这样就点「刷新」或看看 SSE 状态。',
   'empty.services': 'source.yaml 里还没有服务。',
   'empty.links': 'source.yaml 里还没有链接。',
   'empty.messages': '还没有消息，点「发消息」留一条。',
@@ -119,6 +120,7 @@ const zh = {
   'messages.title': '消息',
   'messages.new': '发消息',
   'messages.download': '下载 {name}',
+  'messages.downloadFailed': '下载 {name} 失败：{message}',
   'messages.removeFile': '移除此附件',
   'messages.removeFileAria': '移除 {name}',
   'messages.edited': '已编辑',

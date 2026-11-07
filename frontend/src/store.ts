@@ -186,6 +186,9 @@ export const groups = computed(() => resolveGroups(state.snapshot))
 
 export const peerRowsShown = computed(() => groups.value.reduce((sum, group) => sum + group.peers.length, 0))
 
+/** 还没收到过任何快照——和「配置里确实没有条目」是两回事，空状态文案要分开说。 */
+export const snapshotMissing = computed(() => state.snapshot === null)
+
 // ---------------------------------------------------------------- 状态提示
 
 let noticeTimer: number | null = null

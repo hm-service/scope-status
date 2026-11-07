@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -158,7 +159,11 @@ func TestParseSourceErrors(t *testing.T) {
 		{"服务缺 host", "services:\n  - name: MC\n    port: 25565\n", i18n.KeyConfigServiceHost},
 		{"服务 port 越界", "services:\n  - name: MC\n    host: 10.0.0.9\n    port: 70000\n", i18n.KeyConfigServicePortRange},
 		{"服务 protocol 不认识", "services:\n  - name: MC\n    host: 10.0.0.9\n    port: 25565\n    protocol: quic\n", i18n.KeyConfigServiceProtocol},
-		{"服务 category 类型不对", "services:\n  - name: MC\n    host: 10.0.0.9\n    port: 25565\n    category: [1]\n", i18n.KeyConfigCategoryType},
+		{"服务 udp 没写 payload", "services:\n  - name: MC\n    host: 10.0.0.9\n    port: 25565\n    protocol: udp\n", i18n.KeyConfigServicePayloadMissing},
+		{"服务 payload 不是十六进制", "services:\n  - name: MC\n    host: 10.0.0.9\n    port: 25565\n    protocol: udp\n    payload: zz\n", i18n.KeyConfigServicePayload},
+		{"服务 payload 是空的", "services:\n  - name: MC\n    host: 10.0.0.9\n    port: 25565\n    protocol: udp\n    payload: \"  \"\n", i18n.KeyConfigServicePayload},
+		{"a2s 不该写 payload", "services:\n  - name: MC\n    host: 10.0.0.9\n    port: 25565\n    protocol: a2s\n    payload: \"00\"\n", i18n.KeyConfigServicePayloadUnused},
+		{"服务 category 类型不对", "services:\n  - name: MC\n    host: 10.0.0.9\n    port: 25565\n    protocol: tcp\n    category: [1]\n", i18n.KeyConfigCategoryType},
 		{"links 不是数组", "links: 1\n", i18n.KeyConfigLinksNotList},
 		{"link 缺 url", "links:\n  - name: 面板\n", i18n.KeyConfigLinkURL},
 		{"link url 不对", "links:\n  - name: 面板\n    url: ftp://x/\n", i18n.KeyConfigLinkURLInvalid},
@@ -174,6 +179,34 @@ func TestParseSourceErrors(t *testing.T) {
 				t.Fatalf("错误键 = %q，想要 %q（%v）", key, testCase.key, err)
 			}
 		})
+	}
+}
+
+// udp 的载荷是十六进制字节、允许空格分隔；a2s / q3 自带查询载荷，不写 payload。
+func TestParseServicePayload(t *testing.T) {
+	source, err := ParseSource("test.yaml", []byte(`
+services:
+  - name: 自定义
+    host: 10.0.0.9
+    port: 4000
+    protocol: udp
+    payload: "ff ff  00 01"
+  - name: 引擎
+    host: 10.0.0.9
+    port: 27015
+    protocol: q3
+`))
+	if err != nil {
+		t.Fatalf("解析失败：%v", err)
+	}
+	if len(source.Services) != 2 {
+		t.Fatalf("服务数 = %d", len(source.Services))
+	}
+	if payload := source.Services[0].Payload; !bytes.Equal(payload, []byte{0xff, 0xff, 0x00, 0x01}) {
+		t.Fatalf("载荷 = %v", payload)
+	}
+	if engine := source.Services[1]; engine.Protocol != ProtocolQ3 || engine.Payload != nil {
+		t.Fatalf("q3 不该带载荷：%+v", engine)
 	}
 }
 
@@ -201,6 +234,7 @@ services:
   - name: MC
     host: 10.0.0.9
     port: 25565
+    protocol: tcp
     category: nas
 `))
 	if err != nil {
@@ -341,6 +375,7 @@ services:
   - name: MC
     host: 10.0.0.9
     port: 25565
+    protocol: tcp
     connectCmd: mc 10.0.0.9
 `))
 	if err != nil {

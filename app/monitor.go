@@ -227,7 +227,9 @@ func (m *Monitor) Reload() (*core.Source, error) {
 
 // Stream 恒定节奏地探测；长期没人订阅就降到每分钟一次。
 //
-// 探测真的失败（比如网段没了）会记一条日志并结束循环，不吞掉错误假装一切正常。
+// 一轮探测整体失败（比如配置里某个域名解析不了）只记一条日志，不结束循环：
+// 循环一停就再也不会推新的快照，前端会一直静默下去——旧快照看起来「正常」，问题被藏起来。
+// 还没探出过快照时按失败退避一秒，免得空转刷日志。
 func (m *Monitor) Stream(ctx context.Context) {
 	for {
 		interval := m.streamInterval
@@ -252,7 +254,13 @@ func (m *Monitor) Stream(ctx context.Context) {
 		}
 		if _, err := m.Refresh(); err != nil {
 			logProbeFailure(err)
-			return
+			if interval <= 0 {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Second):
+				}
+			}
 		}
 	}
 }

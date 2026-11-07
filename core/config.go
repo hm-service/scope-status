@@ -4,6 +4,7 @@ package core
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"net"
 	"net/url"
@@ -23,6 +24,7 @@ const (
 	ProtocolUDP = "udp"
 	ProtocolTCP = "tcp"
 	ProtocolA2S = "a2s"
+	ProtocolQ3  = "q3"
 
 	MethodICMP = "icmp"
 	MethodTCP  = "tcp"
@@ -161,6 +163,10 @@ type Service struct {
 	Category   string
 	Properties Properties
 	Index      int
+
+	// 只有 protocol = udp 才有：一问一答的那个「问」，十六进制写在 payload 里。
+	// 零长度数据报谁都答不上，所以 udp 必须给一个载荷，不给就是配置错误。
+	Payload []byte
 }
 
 func (s Service) Endpoint() string { return net.JoinHostPort(s.Host, strconv.Itoa(s.Port)) }
@@ -659,11 +665,25 @@ func parseServices(node *yaml.Node) ([]Service, error) {
 			}
 			protocol = strings.ToLower(strings.TrimSpace(protocol))
 			switch protocol {
-			case ProtocolUDP, ProtocolTCP, ProtocolA2S:
+			case ProtocolUDP, ProtocolTCP, ProtocolA2S, ProtocolQ3:
 				service.Protocol = protocol
 			default:
 				return nil, ConfigError(i18n.KeyConfigServiceProtocol, name, protocol)
 			}
+		}
+		// udp 没有握手，只能「发一问、等一回」；不给载荷就发零长度数据报，谁都不会答——
+		// 那等于永远判离线，所以直接当配置错误。a2s / q3 自带查询载荷，不许再写 payload。
+		if payloadNode := pairs.get("payload"); payloadNode != nil {
+			if service.Protocol != ProtocolUDP {
+				return nil, ConfigError(i18n.KeyConfigServicePayloadUnused, name, service.Protocol)
+			}
+			payload, err := parsePayload(payloadNode, name)
+			if err != nil {
+				return nil, err
+			}
+			service.Payload = payload
+		} else if service.Protocol == ProtocolUDP {
+			return nil, ConfigError(i18n.KeyConfigServicePayloadMissing, name)
 		}
 		if cmdNode := pairs.get("connect_cmd"); cmdNode != nil {
 			cmd, err := wantString(cmdNode, i18n.KeyConfigServiceConnectCmd, name)
@@ -764,6 +784,26 @@ func parseLinks(node *yaml.Node) ([]Link, error) {
 		links = append(links, link)
 	}
 	return links, nil
+}
+
+// parsePayload 解析 udp 的自定义探测载荷：十六进制字节，允许空格分隔（一串长十六进制太难读）。
+func parsePayload(node *yaml.Node, name string) ([]byte, error) {
+	raw, err := wantString(node, i18n.KeyConfigServicePayload, name)
+	if err != nil {
+		return nil, err
+	}
+	cleaned := strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, raw)
+	cleaned = strings.TrimPrefix(strings.TrimPrefix(cleaned, "0x"), "0X")
+	payload, err := hex.DecodeString(cleaned)
+	if err != nil || len(payload) == 0 {
+		return nil, ConfigError(i18n.KeyConfigServicePayload, name)
+	}
+	return payload, nil
 }
 
 func parseProperties(node *yaml.Node, owner string) (Properties, error) {

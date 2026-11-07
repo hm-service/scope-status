@@ -51,6 +51,7 @@ type envConfig struct {
 	StreamInterval       time.Duration
 	MaxAPIConcurrency    int
 	MaxAuthConcurrency   int
+	MaxEventConcurrency  int
 	MaxStaticConcurrency int
 	MaxUploadBytes       int64
 }
@@ -103,6 +104,7 @@ func run() int {
 		SessionSigner:        sessions,
 		MaxAPIConcurrency:    cfg.MaxAPIConcurrency,
 		MaxAuthConcurrency:   cfg.MaxAuthConcurrency,
+		MaxEventConcurrency:  cfg.MaxEventConcurrency,
 		MaxStaticConcurrency: cfg.MaxStaticConcurrency,
 	}).Handler()
 
@@ -241,6 +243,14 @@ func loadEnv() (envConfig, error) {
 	if maxAuth < 1 {
 		return envConfig{}, fmt.Errorf("MAX_AUTH_CONCURRENCY must be positive, got %d", maxAuth)
 	}
+	// SSE 闸门：一条连接占一个名额到客户端断开，所以要按「同时几个看客」来配，不是一个请求多快
+	maxEvent, err := envInt("MAX_EVENT_CONCURRENCY", 64)
+	if err != nil {
+		return envConfig{}, err
+	}
+	if maxEvent < 1 {
+		return envConfig{}, fmt.Errorf("MAX_EVENT_CONCURRENCY must be positive, got %d", maxEvent)
+	}
 	maxStatic, err := envInt("MAX_STATIC_CONCURRENCY", 64)
 	if err != nil {
 		return envConfig{}, err
@@ -271,6 +281,7 @@ func loadEnv() (envConfig, error) {
 		StreamInterval:       time.Duration(streamSeconds * float64(time.Second)),
 		MaxAPIConcurrency:    maxAPI,
 		MaxAuthConcurrency:   maxAuth,
+		MaxEventConcurrency:  maxEvent,
 		MaxStaticConcurrency: maxStatic,
 		MaxUploadBytes:       int64(maxUpload),
 	}, nil

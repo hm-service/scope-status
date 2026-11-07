@@ -35,7 +35,9 @@ peers:
     kind: server
     addresses: ["10.0.0.9"]
 
-# 服务：protocol = udp（默认）| tcp | a2s；category 只影响分组（不写就进内置「服务」组）
+# 服务：protocol = tcp | a2s | q3 | udp；category 只影响分组（不写就进内置「服务」组）
+# a2s = Source 引擎（CS / L4D2 等）的 A2S_INFO；q3 = Quake3 家族（Warfork / Warsow 等）的 getinfo
+# udp = 自定义一问一答：UDP 没有握手，必须给 payload（十六进制字节，可空格分隔），收到回包才算在线
 services:
   - name: CS 起源
     host: 10.0.0.9
@@ -45,6 +47,15 @@ services:
     connect_cmd: connect 10.0.0.9:27015
     properties:
       版本: 1.6
+  - name: 竞技服
+    host: 10.0.0.9
+    port: 44400
+    protocol: q3
+  - name: 自定义 UDP
+    host: 10.0.0.9
+    port: 4000
+    protocol: udp
+    payload: "ff ff 00 01"
 
 # 网站：url 是给人点开的；probe_url 是探测地址，不写就探 url 本身
 links:

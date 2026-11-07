@@ -55,9 +55,10 @@ type Options struct {
 	SessionTTL     time.Duration
 	MaxUploadBytes int64
 	// 闸门默认给小的值：用例要的是「满了好不好使」，不是压测吞吐
-	MaxAPIConcurrency  int
-	MaxAuthConcurrency int
-	Static             fs.FS
+	MaxAPIConcurrency   int
+	MaxAuthConcurrency  int
+	MaxEventConcurrency int
+	Static              fs.FS
 }
 
 type Env struct {
@@ -137,6 +138,7 @@ func NewWith(t *testing.T, source string, opts Options) *Env {
 		AuthFloor:            authFloor,
 		MaxAPIConcurrency:    positive(opts.MaxAPIConcurrency, 8),
 		MaxAuthConcurrency:   positive(opts.MaxAuthConcurrency, 8),
+		MaxEventConcurrency:  positive(opts.MaxEventConcurrency, 4),
 		MaxStaticConcurrency: 4,
 	}).Handler()
 	server := httptest.NewServer(handler)

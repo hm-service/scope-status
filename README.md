@@ -22,7 +22,7 @@
 | 标签页 | 内容 |
 | --- | --- |
 | 状态 | 顶部一张**内网拓扑图**（中继基建 + 双箭头接入，可折叠）；下面内网条目一行一个：地址、最低延迟、连通性；按 `category` 分组、可折叠；点一行展开 `properties` |
-| 服务 | 游戏服 / 站点后端：按 `protocol`（`udp` / `tcp` / `a2s`）探测；`connect_cmd` 可复制 |
+| 服务 | 游戏服 / 站点后端：按 `protocol`（`tcp` / `a2s` / `q3` / `udp` + `payload`）探测；`connect_cmd` 可复制 |
 | 网站 | 链接：站点图标 + 名字可点开，显示 HTTP 状态与延迟（图标异步抓，慢站点不拖累探测） |
 | 消息 | 文本与附件；不分类型，进站的人都能看、都能改；按时间戳倒序 |
 
@@ -123,9 +123,18 @@ services:
   - name: CS 起源
     host: 10.0.0.9
     port: 27015
-    protocol: a2s
+    protocol: a2s           # a2s = Source 引擎的 A2S_INFO 查询
     category: 游戏服务器     # 只影响分组，不写就进内置「服务」组
     connect_cmd: connect 10.0.0.9:27015
+  - name: 竞技服
+    host: 10.0.0.9
+    port: 44400
+    protocol: q3            # q3 = Quake3 家族的 getinfo 查询（Warfork / Warsow 等）
+  - name: 自定义 UDP
+    host: 10.0.0.9
+    port: 4000
+    protocol: udp
+    payload: "ff ff 00 01"  # 十六进制字节：UDP 没有握手，必须发一问才会有一答
 
 links:
   - name: 面板
@@ -166,6 +175,7 @@ Vite 那边把 `/auth` 改写成 `auth.html`（线上是后端做的这件事）
 | `STREAM_INTERVAL` | `5` | SSE 循环探测间隔（秒）；`0` 表示不起循环、只在请求时探 |
 | `MAX_AUTH_CONCURRENCY` | `32` | `/api/auth` 并发闸门（登录被打满不牵连业务） |
 | `MAX_API_CONCURRENCY` | `128` | 业务 `/api/*`（不含 `/api/auth`）并发闸门 |
+| `MAX_EVENT_CONCURRENCY` | `64` | `/api/events`（SSE）并发上限：长连接自己一道闸门，不占业务请求的名额 |
 | `MAX_STATIC_CONCURRENCY` | `64` | 静态文件并发上限 |
 | `MAX_UPLOAD_BYTES` | `1073741824` | 单个附件上限（1 GiB） |
 | `GOMEMLIMIT` | 由运行时读 | Go GC 阈值 |
@@ -206,7 +216,7 @@ curl -s -H "Authorization: Bearer $SESSION" localhost:8080/api/stats | jq
 `/api/*` 的错误体统一是 `{"detail": "…"}`（前端只读 `detail`），方法不对回 `405` 并带准的 `Allow`；所有响应带
 `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`，以及一条尽量紧的 CSP
 （`script-src 'self'`，所以页面里没有内联脚本：防闪的主题是 `/theme.js`；图片额外放行 `https:`，因为站点图标来自被监控站点）。
-`/livez` 永远 200 且不记日志；并发上限分四道各自独立的闸门（静态产物、`/api/auth`、业务 `/api/*`、`/readyz` 固定 4），
+`/livez` 永远 200 且不记日志；并发上限分五道各自独立的闸门（静态产物、`/api/auth`、`/api/events`、业务 `/api/*`、`/readyz` 固定 4），
 `/livez` 不设闸——被业务流量打满时探针仍然答得上。
 `/readyz` 校验口令（不对回 `401`）与数据目录 / 数据文件权限（不对回 `503`，细节只进后端日志）。
 
@@ -260,11 +270,11 @@ just check    # vet + test + 前端 vue-tsc
 
 | 包 | 覆盖率 | 说明 |
 | --- | --- | --- |
-| `main` | 44.1% | 环境变量校验：三个密钥/闸门必填且形状合规、散列、清掉环境变量，入口页面不许有内联脚本 |
-| `core` | 84.1% | 配置解析与校验、探测、消息标识与活动时间、口令的 Argon2id 摘要、无状态会话签名 |
+| `main` | 46.0% | 环境变量校验：三个密钥/闸门必填且形状合规、散列、清掉环境变量，入口页面不许有内联脚本 |
+| `core` | 84.4% | 配置解析与校验、探测、消息标识与活动时间、口令的 Argon2id 摘要、无状态会话签名 |
 | `store` | 72.7% | `source.yaml` 读取、消息与附件池读写 |
-| `app` | 74.9% | 探测循环、快照、广播、消息用例（含 `?since=` 筛选） |
-| `api` | 83.8% | 路由、四道并发闸门、登录换会话、会话鉴权、SSE、消息接口（含未读筛选）、静态文件、探针 |
+| `app` | 74.7% | 探测循环、快照、广播、消息用例（含 `?since=` 筛选） |
+| `api` | 83.8% | 路由、五道并发闸门、登录换会话、会话鉴权、SSE、消息接口（含未读筛选）、静态文件、探针 |
 | `i18n` | 87.1% | 语言协商与文案表 |
 | `httpx` | 64.3% | 响应小工具、客户端 IP、访问日志、安全头（含 CSP） |
 

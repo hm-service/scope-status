@@ -133,6 +133,25 @@ export async function uploadFile(file: File): Promise<Attachment> {
   return (await response.json()) as Attachment
 }
 
+/**
+ * 下载附件：浏览器直接点链接（<a href>）是导航请求，带不上 Authorization 头，服务端只会回 401。
+ * 所以先用会话把内容取回来，再交给浏览器存盘。
+ */
+export async function downloadAttachment(url: string, name: string): Promise<void> {
+  const response = await send(url, { headers: baseHeaders(), cache: 'no-store' })
+  if (!response.ok) throw await errorFrom(response)
+  const blob = await response.blob()
+  const objectURL = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = objectURL
+  anchor.download = name
+  document.body.append(anchor)
+  anchor.click()
+  anchor.remove()
+  // 立刻 revoke 会让部分浏览器拿到空文件，放到下一轮事件循环再收
+  window.setTimeout(() => URL.revokeObjectURL(objectURL), 0)
+}
+
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }

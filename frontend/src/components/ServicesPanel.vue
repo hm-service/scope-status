@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { t, type I18nKey } from '../i18n'
-import { services, servicesGroups, state } from '../store'
+import { services, servicesGroups, snapshotMissing, state } from '../store'
 import GroupSection from './GroupSection.vue'
 import ServiceRow from './ServiceRow.vue'
 
@@ -23,6 +23,6 @@ const serviceColumns: I18nKey[] = ['columns.name', 'columns.status', 'columns.la
         <ServiceRow v-for="(service, index) in group.services || []" :key="`${service.name}:${index}`" :service="service" />
       </GroupSection>
     </div>
-    <p class="empty" id="services-empty" :hidden="services.length > 0">{{ t('empty.services') }}</p>
+    <p class="empty" id="services-empty" :hidden="services.length > 0">{{ snapshotMissing ? t('empty.waiting') : t('empty.services') }}</p>
   </section>
 </template>

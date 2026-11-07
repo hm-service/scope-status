@@ -16,40 +16,48 @@ export interface StreamHandlers {
 /** 断线后多久重连一次；服务端每 15 秒发一个注释帧保活，够区分「静默」与「已死」。 */
 const RECONNECT_MS = 3000
 
-let controller: AbortController | null = null
-let running = false
+// 一条连接 = 一个 run。closeStream 只关掉当前这份，老循环看到自己的 alive 为 false 就退出。
+// 之前用一个模块级 running 标记：close 置 false、紧接着 connect 又置回 true，老循环于是
+// 「复活」，每触发一次静默重连就多留一个循环——线上攒出上百条 SSE，把 /api 的闸门占死了。
+interface StreamRun {
+  alive: boolean
+  abort: AbortController
+}
+
+let current: StreamRun | null = null
 
 export function connectStream(handlers: StreamHandlers): void {
-  if (running) return
-  running = true
-  void readLoop(handlers)
+  if (current) return
+  const run: StreamRun = { alive: true, abort: new AbortController() }
+  current = run
+  void readLoop(handlers, run)
 }
 
 export function closeStream(): void {
-  running = false
-  controller?.abort()
-  controller = null
+  if (!current) return
+  current.alive = false
+  current.abort.abort()
+  current = null
 }
 
 /** 连接还在（没被主动关掉）时为真；静默检测拿它当开关。 */
 export function streamConnected(): boolean {
-  return running && controller !== null
+  return current !== null
 }
 
-async function readLoop(handlers: StreamHandlers): Promise<void> {
-  while (running) {
+async function readLoop(handlers: StreamHandlers, run: StreamRun): Promise<void> {
+  while (run.alive) {
     handlers.onStateChange('connecting')
-    const abort = new AbortController()
-    controller = abort
+    run.abort = new AbortController()
     try {
       const response = await fetch('/api/events', {
         headers: { ...authHeader(), Accept: 'text/event-stream' },
         cache: 'no-store',
-        signal: abort.signal,
+        signal: run.abort.signal,
       })
+      if (!run.alive) return
       if (response.status === 401) {
-        running = false
-        controller = null
+        closeStream()
         handleUnauthorized()
         return
       }
@@ -58,8 +66,7 @@ async function readLoop(handlers: StreamHandlers): Promise<void> {
     } catch {
       // 断线、被 abort、网络抖动都走同一条重连路径
     }
-    controller = null
-    if (!running) return
+    if (!run.alive) return
     handlers.onStateChange('off')
     await sleep(RECONNECT_MS)
   }

@@ -35,14 +35,16 @@ type Options struct {
 	AuthFloor            time.Duration
 	MaxAPIConcurrency    int
 	MaxAuthConcurrency   int
+	MaxEventConcurrency  int
 	MaxStaticConcurrency int
 }
 
-// 四道闸门各自独立：一个端点被打满，不让别的端点跟着陪葬。
+// 五道闸门各自独立：一个端点被打满，不让别的端点跟着陪葬。
 type Server struct {
 	opts      Options
 	apiSem    chan struct{}
 	authSem   chan struct{}
+	eventSem  chan struct{}
 	staticSem chan struct{}
 	probeSem  chan struct{}
 }
@@ -55,6 +57,7 @@ func New(opts Options) *Server {
 		opts:      opts,
 		apiSem:    make(chan struct{}, max(1, opts.MaxAPIConcurrency)),
 		authSem:   make(chan struct{}, max(1, opts.MaxAuthConcurrency)),
+		eventSem:  make(chan struct{}, max(1, opts.MaxEventConcurrency)),
 		staticSem: make(chan struct{}, max(1, opts.MaxStaticConcurrency)),
 		probeSem:  make(chan struct{}, readyzConcurrency),
 	}
@@ -107,7 +110,10 @@ func (s *Server) limit(next http.Handler) http.Handler {
 	})
 }
 
-// gate 是「路径 → 闸门」的唯一映射：静态产物、/api/auth、业务 /api/*、/readyz 各一道。
+// gate 是「路径 → 闸门」的唯一映射：静态产物、/api/auth、/api/events、业务 /api/*、/readyz 各一道。
+//
+// /api/events 单开一道是因为 SSE 是长连接：一条连接要占着名额到客户端断开，
+// 挂在业务闸门上，几十个看客就能把整个 /api 饿死（线上出过一次，128 条 SSE 顶满）。
 func (s *Server) gate(path string) chan struct{} {
 	switch {
 	case path == "/livez":
@@ -116,6 +122,8 @@ func (s *Server) gate(path string) chan struct{} {
 		return s.probeSem
 	case path == "/api/auth":
 		return s.authSem
+	case path == "/api/events":
+		return s.eventSem
 	case path == "/api" || strings.HasPrefix(path, "/api/"):
 		return s.apiSem
 	default:

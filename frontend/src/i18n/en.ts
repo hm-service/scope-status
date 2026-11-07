@@ -114,6 +114,7 @@ const en: Record<I18nKey, string> = {
   'topology.note': 'Double arrow = this peer attaches to the relay infrastructure; WG links live inside it.',
 
   'empty.peers': 'no entries in source.yaml yet, add one first.',
+  'empty.waiting': 'no snapshot from the server yet — wait a moment, or press Refresh if it stays like this.',
   'empty.services': 'no services in source.yaml yet.',
   'empty.links': 'no links in source.yaml yet.',
   'empty.messages': 'no messages yet — click "New message" to leave one.',
@@ -121,6 +122,7 @@ const en: Record<I18nKey, string> = {
   'messages.title': 'Messages',
   'messages.new': 'New message',
   'messages.download': 'Download {name}',
+  'messages.downloadFailed': 'download {name} failed: {message}',
   'messages.removeFile': 'Remove this attachment',
   'messages.removeFileAria': 'Remove {name}',
   'messages.edited': 'edited',

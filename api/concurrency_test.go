@@ -8,13 +8,14 @@ import (
 	"github.com/hm-service/scope-status/internal/testenv"
 )
 
-// 四道闸门各自独立：把业务那道占满，探针、认证还得照常走。
-// 旧实现是一张闸门统管 /api/* + /livez + /readyz，一条 SSE 就能把探针一起饿死。
-func TestConcurrencyGatesAreIndependent(t *testing.T) {
-	env := testenv.NewWith(t, testenv.DefaultSource, testenv.Options{MaxAPIConcurrency: 1, MaxAuthConcurrency: 1})
+// 闸门各自独立：SSE 是长连接，一条连接要占着名额到客户端断开，所以它得自己一道门——
+// 挂在业务闸门上，几十个看客就能把整个 /api 饿死（线上真出过：128 条 SSE 顶满闸门，
+// 之后每个 /api 请求都排队到客户端放弃）。
+func TestEventGateIsIndependent(t *testing.T) {
+	env := testenv.NewWith(t, testenv.DefaultSource, testenv.Options{MaxAPIConcurrency: 1, MaxEventConcurrency: 1})
 
 	// holder 用带会话的 transport（不带就只会拿到 401，根本没进闸门），但不设超时：
-	// SSE 一直占着业务闸门那唯一的槽，直到我们关掉它
+	// 这条 SSE 一直占着事件闸门那唯一的槽，直到我们关掉它
 	holder := &http.Client{Transport: env.Client.Transport}
 	stream, err := holder.Get(env.BaseURL + "/api/events")
 	if err != nil || stream.StatusCode != http.StatusOK {
@@ -25,9 +26,13 @@ func TestConcurrencyGatesAreIndependent(t *testing.T) {
 	// 断言用短超时：万一这些端点也被那张闸门挡住，会立刻暴露，而不是等成慢速通过
 	quick := &http.Client{Transport: env.Client.Transport, Timeout: 700 * time.Millisecond}
 
-	// 业务端点：闸门占满了就该等着，等不到就放弃
-	if _, err := quick.Get(env.BaseURL + "/api/stats"); err == nil {
-		t.Fatal("业务闸门已占满，/api/stats 不该还能进")
+	// 业务端点：SSE 占满事件闸门，不该牵连业务闸门
+	if got := callWith(t, env, quick, http.MethodGet, "/api/stats", ""); got.status != http.StatusOK {
+		t.Fatalf("/api/stats = %d，SSE 不该占业务闸门", got.status)
+	}
+	// 第二条 SSE 会被事件闸门挡住：闸门满了就等着，等不到就放弃
+	if _, err := quick.Get(env.BaseURL + "/api/events"); err == nil {
+		t.Fatal("事件闸门已占满，第二条 SSE 不该还能进")
 	}
 	// /livez 不设闸：活着就要答得上
 	if got := callWith(t, env, quick, http.MethodGet, "/livez", ""); got.status != http.StatusOK {

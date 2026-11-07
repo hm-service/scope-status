@@ -173,21 +173,56 @@ func TestSubscriberQueueDropsOldest(t *testing.T) {
 	}
 }
 
-func TestStreamLoopStopsOnProbeFailure(t *testing.T) {
-	source := parseSource(t, "probe:\n  method: tcp\n  timeout: 0.2\npeers:\n  - name: 小明\n    kind: friend\n    addresses: [\"nope.invalid:1\"]\n")
-	monitor := NewMonitor(source, "", 10*time.Millisecond)
+// 一轮探测整体失败（配置里有个域名解析不了）不该让循环退出：退出了就再也不会推快照，
+// 前端只能看到一份冻住的旧快照。失败只记日志，下一轮继续；配置改对了要能自己恢复。
+func TestStreamLoopKeepsGoingAfterProbeFailure(t *testing.T) {
+	dir := t.TempDir()
+	sourceFile := filepath.Join(dir, "source.yaml")
+	write := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(sourceFile, []byte(body), 0o600); err != nil {
+			t.Fatalf("写配置失败：%v", err)
+		}
+	}
+	bad := "probe:\n  method: tcp\n  timeout: 0.2\npeers:\n  - name: 小明\n    kind: friend\n    addresses: [\"nope.invalid:1\"]\n"
+	good := "peers:\n  - name: 小明\n    kind: friend\n    addresses: [\"127.0.0.1:1\"]\n"
+	write(bad)
+	monitor := NewMonitor(parseSource(t, bad), sourceFile, 10*time.Millisecond)
+	monitor.SetSnapshotView(viewStub)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan struct{})
 	go func() {
-		monitor.Stream(context.Background())
+		monitor.Stream(ctx)
 		close(done)
 	}()
+	time.Sleep(150 * time.Millisecond)
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatal("探测失败后循环应该停下来")
+		t.Fatal("探测失败不该让循环退出")
+	default:
 	}
 	if monitor.Current() != nil {
 		t.Fatal("失败的那轮不该留下快照")
+	}
+
+	// 把配置修好再重载：还活着的循环应该自己接着探出快照
+	write(good)
+	if _, err := monitor.Reload(); err != nil {
+		t.Fatalf("重载失败：%v", err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for monitor.Current() == nil && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if monitor.Current() == nil {
+		t.Fatal("配置修好之后循环应该继续探出新快照")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("取消后循环应该退出")
 	}
 }
 

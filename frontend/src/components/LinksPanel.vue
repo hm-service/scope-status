@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { t } from '../i18n'
-import { links, linksGroupCount, state } from '../store'
+import { links, linksGroupCount, snapshotMissing, state } from '../store'
 import LinkRow from './LinkRow.vue'
 </script>
 
@@ -23,7 +23,7 @@ import LinkRow from './LinkRow.vue'
           <LinkRow v-for="(link, index) in links" :key="`${link.name}:${index}`" :link="link" />
         </ul>
       </div>
-      <p class="empty" id="links-empty" :hidden="links.length > 0">{{ t('empty.links') }}</p>
+      <p class="empty" id="links-empty" :hidden="links.length > 0">{{ snapshotMissing ? t('empty.waiting') : t('empty.links') }}</p>
     </section>
   </section>
 </template>

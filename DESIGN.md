@@ -17,13 +17,16 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 | `STREAM_INTERVAL`        | `5`                    | SSE 循环探测间隔秒数；`0` 表示不起循环（只按需探测）     |
 | `MAX_AUTH_CONCURRENCY`   | `32`                   | `/api/auth` 并发闸门：登录被打满不牵连业务                |
 | `MAX_API_CONCURRENCY`    | `128`                  | 业务 `/api/*`（不含 `/api/auth`）并发闸门                 |
+| `MAX_EVENT_CONCURRENCY`  | `64`                   | `/api/events`（SSE）并发上限：长连接自己一道闸门，不占业务请求的名额 |
 | `MAX_STATIC_CONCURRENCY` | `64`                   | 静态文件并发上限                                         |
 | `GOMEMLIMIT`             | `128MiB`               | Go GC 阈值，由运行时自己读                               |
 | `MAX_UPLOAD_BYTES`       | `1073741824`           | 单个附件上限（1 GiB）                                    |
 
-- 并发闸门四道各自独立：静态产物 `MAX_STATIC_CONCURRENCY`、`/api/auth` `MAX_AUTH_CONCURRENCY`、
-  业务 `/api/*`（不含 `/api/auth`）`MAX_API_CONCURRENCY`、`/readyz` 固定 4；`/livez` 不设闸——
-  「活着就答得上」是它的语义，而任何闸门都可能被洪泛占满。闸门满了就排队等，客户端先放弃就回 `503`。
+- 并发闸门五道各自独立：静态产物 `MAX_STATIC_CONCURRENCY`、`/api/auth` `MAX_AUTH_CONCURRENCY`、
+  `/api/events` `MAX_EVENT_CONCURRENCY`、业务 `/api/*`（不含 `/api/auth`）`MAX_API_CONCURRENCY`、
+  `/readyz` 固定 4；`/livez` 不设闸——「活着就答得上」是它的语义，而任何闸门都可能被洪泛占满。
+  `/api/events` 单开一道是因为 SSE 是长连接：一条连接占着名额到客户端断开，挂在业务闸门上，
+  几十个看客就能把整个 `/api` 饿死。闸门满了就排队等，客户端先放弃就回 `503`。
 
 - 配置与状态同目录，配置路径写死为 `<DATA_DIR>/source.yaml`：容器把配置当 ConfigMap 挂在数据目录里，
   状态挂 PVC；挂一个卷就是应用的全部。
@@ -225,7 +228,7 @@ data: {…快照，多一个 "reused": false…}
 | `core`          | cloud_servers | 布尔；`true` = WG 主干，整个文件最多一个；WG 链路按它推：主干 ↔ 其余每一台 |
 | `category`      | services | 分组名（转小写、空格转 `-`）；不写就进内置「服务」组                       |
 | `host` `port`   | services | `host` 非空；`port` 1–65535                                                |
-| `protocol`      | services | `udp` / `tcp` / `a2s`                                                      |
+| `protocol`      | services | `tcp` / `a2s` / `q3` / `udp`（`udp` 必须配 `payload`，十六进制）             |
 | `connect_cmd`   | services | 可复制的连接命令                                                           |
 | `url`           | links    | `http(s)://` 开头的完整地址                                                |
 | `probe_url`     | links    | 探测地址；不写就探 `url`                                                   |

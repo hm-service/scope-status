@@ -151,22 +151,25 @@ func TestProbeServiceTCP(t *testing.T) {
 	}
 }
 
+// 通用 udp 是「发配置里的载荷、收到任何回包算通」：载荷一个字节都不能省，
+// 发零长度数据报谁都答不上（线上三个游戏服就是因为这个全判离线）。
 func TestProbeServiceUDP(t *testing.T) {
-	host, port := echoUDP(t)
-	result, err := ProbeService(Service{Name: "udp", Host: host, Port: port, Protocol: ProtocolUDP}, time.Second)
+	received := make(chan []byte, 1)
+	host, port := replyUDP(t, received, []byte("pong"))
+	result, err := ProbeService(Service{Name: "udp", Host: host, Port: port, Protocol: ProtocolUDP, Payload: []byte("ping")}, time.Second)
 	if err != nil {
 		t.Fatalf("探测失败：%v", err)
 	}
 	if !result.Online() || result.Detail.Key != i18n.KeyDetailUDPBytes {
 		t.Fatalf("结果不对：%+v", result)
 	}
-
-	a2s, err := ProbeService(Service{Name: "a2s", Host: host, Port: port, Protocol: ProtocolA2S}, time.Second)
-	if err != nil {
-		t.Fatalf("探测失败：%v", err)
-	}
-	if !a2s.Online() || a2s.Detail.Key != i18n.KeyDetailA2SOK || a2s.Method != ProtocolA2S {
-		t.Fatalf("A2S 结果不对：%+v", a2s)
+	select {
+	case sent := <-received:
+		if string(sent) != "ping" {
+			t.Fatalf("发出去的载荷 = %q，想要 ping", sent)
+		}
+	default:
+		t.Fatal("服务端没收到任何数据报")
 	}
 }
 
@@ -177,12 +180,64 @@ func TestProbeServiceUDPTimeout(t *testing.T) {
 	}
 	defer packet.Close()
 	host, port := splitAddress(t, packet.LocalAddr().String())
-	result, err := ProbeService(Service{Name: "udp", Host: host, Port: port, Protocol: ProtocolUDP}, 100*time.Millisecond)
+	result, err := ProbeService(Service{Name: "udp", Host: host, Port: port, Protocol: ProtocolUDP, Payload: []byte("ping")}, 100*time.Millisecond)
 	if err != nil {
 		t.Fatalf("探测失败：%v", err)
 	}
 	if result.Online() || result.Detail.Key != i18n.KeyDetailUDPNoReply {
 		t.Fatalf("没人回话应该算不通：%+v", result)
+	}
+}
+
+// A2S 只认 0xFFFFFFFF + I/A/E 开头；端口上蹲着的若是别的服务，回包不能当真。
+func TestProbeServiceA2S(t *testing.T) {
+	host, port := replyUDP(t, nil, []byte("\xff\xff\xff\xffIhello"))
+	result, err := ProbeService(Service{Name: "a2s", Host: host, Port: port, Protocol: ProtocolA2S}, time.Second)
+	if err != nil {
+		t.Fatalf("探测失败：%v", err)
+	}
+	if !result.Online() || result.Detail.Key != i18n.KeyDetailA2SOK || result.Method != ProtocolA2S {
+		t.Fatalf("A2S 结果不对：%+v", result)
+	}
+
+	// 满员服务器的分片回包（0xFFFFFFFE 开头）也算应答
+	host, port = replyUDP(t, nil, []byte("\xff\xff\xff\xfe\x02split"))
+	result, err = ProbeService(Service{Name: "a2s", Host: host, Port: port, Protocol: ProtocolA2S}, time.Second)
+	if err != nil {
+		t.Fatalf("探测失败：%v", err)
+	}
+	if !result.Online() {
+		t.Fatalf("分片回包也算 A2S 应答：%+v", result)
+	}
+
+	host, port = replyUDP(t, nil, []byte("hello"))
+	result, err = ProbeService(Service{Name: "a2s", Host: host, Port: port, Protocol: ProtocolA2S}, time.Second)
+	if err != nil {
+		t.Fatalf("探测失败：%v", err)
+	}
+	if result.Online() || result.Detail.Key != i18n.KeyDetailUDPBadReply {
+		t.Fatalf("不是 A2S 的回包该算不通：%+v", result)
+	}
+}
+
+// Q3 家族（Quake3 / Warfork）回 0xFFFFFFFF + "\ninfoResponse"。
+func TestProbeServiceQ3(t *testing.T) {
+	host, port := replyUDP(t, nil, []byte("\xff\xff\xff\xffinfoResponse\n\\hostname\\wf"))
+	result, err := ProbeService(Service{Name: "q3", Host: host, Port: port, Protocol: ProtocolQ3}, time.Second)
+	if err != nil {
+		t.Fatalf("探测失败：%v", err)
+	}
+	if !result.Online() || result.Detail.Key != i18n.KeyDetailQ3OK || result.Method != ProtocolQ3 {
+		t.Fatalf("Q3 结果不对：%+v", result)
+	}
+
+	host, port = replyUDP(t, nil, []byte("hello"))
+	result, err = ProbeService(Service{Name: "q3", Host: host, Port: port, Protocol: ProtocolQ3}, time.Second)
+	if err != nil {
+		t.Fatalf("探测失败：%v", err)
+	}
+	if result.Online() || result.Detail.Key != i18n.KeyDetailUDPBadReply {
+		t.Fatalf("不是 Q3 的回包该算不通：%+v", result)
 	}
 }
 
@@ -306,6 +361,35 @@ func echoUDP(t *testing.T) (string, int) {
 				return
 			}
 			packet.WriteTo(buf[:read], from)
+		}
+	}()
+	return splitAddress(t, packet.LocalAddr().String())
+}
+
+// replyUDP 起一个 UDP 服务：收到任何包都回固定内容；received 非空时把收到的包投进去。
+func replyUDP(t *testing.T, received chan<- []byte, reply []byte) (string, int) {
+	t.Helper()
+	packet, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("起不了 UDP：%v", err)
+	}
+	t.Cleanup(func() { packet.Close() })
+	go func() {
+		buf := make([]byte, 2048)
+		for {
+			read, from, err := packet.ReadFrom(buf)
+			if err != nil {
+				return
+			}
+			if received != nil {
+				select {
+				case received <- append([]byte(nil), buf[:read]...):
+				default:
+				}
+			}
+			if _, err := packet.WriteTo(reply, from); err != nil {
+				return
+			}
 		}
 	}()
 	return splitAddress(t, packet.LocalAddr().String())

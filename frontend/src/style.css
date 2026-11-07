@@ -583,7 +583,8 @@ main { padding-bottom: 8px; }
 .file-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .file-name { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-size { color: var(--muted); font-size: 12px; }
-.file-download { display: inline-flex; flex: none; color: var(--muted); }
+.file-download { display: inline-flex; flex: none; padding: 0; border: 0; background: none; color: var(--muted); cursor: pointer; }
+.file-download:disabled { cursor: progress; opacity: 0.5; }
 .file-download:hover { color: var(--accent); }
 .file-remove { display: inline-flex; flex: none; padding: 2px; border: none; background: none; color: var(--muted); cursor: pointer; }
 .file-remove:hover { color: var(--down); }

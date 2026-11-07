@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { t, type I18nKey } from '../i18n'
-import { peerRowsShown, groups, state } from '../store'
+import { peerRowsShown, groups, snapshotMissing, state } from '../store'
 import PeerRow from './PeerRow.vue'
 import TopologyGraph from './TopologyGraph.vue'
 import GroupSection from './GroupSection.vue'
@@ -25,6 +25,6 @@ const peerColumns: I18nKey[] = ['columns.device', 'columns.status', 'columns.min
         <PeerRow v-for="(peer, index) in group.peers" :key="`${peer.name}:${index}`" :peer="peer" />
       </GroupSection>
     </div>
-    <p class="empty" id="empty" :hidden="peerRowsShown > 0">{{ t('empty.peers') }}</p>
+    <p class="empty" id="empty" :hidden="peerRowsShown > 0">{{ snapshotMissing ? t('empty.waiting') : t('empty.peers') }}</p>
   </section>
 </template>

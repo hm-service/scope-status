@@ -148,15 +148,18 @@ func probeHTTP(address string, config ProbeConfig) (ProbeResult, error) {
 	return result, nil
 }
 
-// ProbeService 按协议探测一个服务的活性：tcp 能连上算通，udp 收到回包算通，a2s 要 A2S_INFO 有回应。
+// ProbeService 按协议探测一个服务的活性：tcp 能连上算通；udp / a2s / q3 都是「发一问、
+// 收到符合该协议的回包」才算通——UDP 没有握手，空包发过去得不到任何结论。
 func ProbeService(service Service, timeout time.Duration) (ProbeResult, error) {
 	switch service.Protocol {
 	case ProtocolTCP:
 		return probeServiceTCP(service, timeout)
 	case ProtocolUDP:
-		return probeServiceUDP(service, timeout, nil)
+		return probeServiceUDP(service, timeout, service.Payload, acceptAnyReply)
 	case ProtocolA2S:
 		return probeServiceA2S(service, timeout)
+	case ProtocolQ3:
+		return probeServiceQ3(service, timeout)
 	default:
 		return ProbeResult{}, BadRequest(i18n.KeyProbeProtocol, service.Protocol)
 	}
@@ -181,7 +184,13 @@ func probeServiceTCP(service Service, timeout time.Duration) (ProbeResult, error
 		Detail: NewText(i18n.KeyDetailTCPRefused, err.Error()), Method: MethodTCP}, nil
 }
 
-func probeServiceUDP(service Service, timeout time.Duration, payload []byte) (ProbeResult, error) {
+// acceptReply 判断回包是不是「这个协议的应答」：目标端口上蹲着的可能是别的服务，
+// 收到什么就一律算在线等于给自己发假消息。
+type acceptReply func(reply []byte) bool
+
+func acceptAnyReply([]byte) bool { return true }
+
+func probeServiceUDP(service Service, timeout time.Duration, query []byte, accept acceptReply) (ProbeResult, error) {
 	started := nowNanos()
 	conn, err := net.DialTimeout(ProtocolUDP, service.Endpoint(), timeout)
 	if err != nil {
@@ -194,7 +203,7 @@ func probeServiceUDP(service Service, timeout time.Duration, payload []byte) (Pr
 	if err := conn.SetDeadline(now().Add(timeout)); err != nil {
 		return ProbeResult{}, ServerError(i18n.KeyProbeMethod, err.Error())
 	}
-	if _, err := conn.Write(payload); err != nil {
+	if _, err := conn.Write(query); err != nil {
 		if isConnectionRefused(err) {
 			return ProbeResult{Address: service.Endpoint(), Status: StatusDown,
 				Detail: NewText(i18n.KeyDetailUDPRefused), Method: service.Protocol}, nil
@@ -214,20 +223,74 @@ func probeServiceUDP(service Service, timeout time.Duration, payload []byte) (Pr
 		}
 		return ProbeResult{}, ServerError(i18n.KeyProbeMethod, err.Error())
 	}
+	if !accept(buf[:read]) {
+		return ProbeResult{Address: service.Endpoint(), Status: StatusDown,
+			Detail: NewText(i18n.KeyDetailUDPBadReply), Method: service.Protocol}, nil
+	}
 	return ProbeResult{Address: service.Endpoint(), Status: StatusUp, LatencyMs: latency(started, nowNanos()),
 		Detail: NewText(i18n.KeyDetailUDPBytes, read), Method: service.Protocol}, nil
 }
 
-var a2sQuery = append([]byte{0xff, 0xff, 0xff, 0xff}, []byte("TSource Engine Query\x00")...)
+var (
+	a2sQuery = append([]byte{0xff, 0xff, 0xff, 0xff}, []byte("TSource Engine Query\x00")...)
+	q3Query  = append([]byte{0xff, 0xff, 0xff, 0xff}, []byte("getinfo xxx\n")...)
+)
+
+// queryHeader 是全包 / 分片的分界：0xFFFFFFFF 是整包，0xFFFFFFFE 是分片的第一片
+// （满员的服务器回 getstatus / A2S_INFO 会超过一个 MTU）。不是这两种前缀就不是本协议的应答。
+func queryHeader(reply []byte) byte {
+	if len(reply) < 4 || reply[0] != 0xff || reply[1] != 0xff || reply[2] != 0xff {
+		return 0
+	}
+	if reply[3] != 0xff && reply[3] != 0xfe {
+		return 0
+	}
+	return reply[3]
+}
+
+// A2S_INFO 的回包是 0x49（信息）；0x41 是挑战码、0x45 是 GoldSrc 的老格式，都说明服务器活着。
+// 分片回包的第一片看不出类型，只要前缀对就算应答。
+func isA2SReply(reply []byte) bool {
+	switch queryHeader(reply) {
+	case 0xff:
+		if len(reply) < 5 {
+			return false
+		}
+		switch reply[4] {
+		case 'I', 'A', 'E':
+			return true
+		}
+		return false
+	case 0xfe:
+		return true
+	default:
+		return false
+	}
+}
+
+// Q3 协议家族（Quake3 / Warfork 等）回 0xFFFFFFFF + "\ninfoResponse" 之类，认前缀就够。
+func isQ3Reply(reply []byte) bool { return queryHeader(reply) != 0 }
 
 func probeServiceA2S(service Service, timeout time.Duration) (ProbeResult, error) {
-	result, err := probeServiceUDP(service, timeout, a2sQuery)
+	result, err := probeServiceUDP(service, timeout, a2sQuery, isA2SReply)
 	if err != nil {
 		return result, err
 	}
 	result.Method = ProtocolA2S
 	if result.Online() {
 		result.Detail = NewText(i18n.KeyDetailA2SOK)
+	}
+	return result, nil
+}
+
+func probeServiceQ3(service Service, timeout time.Duration) (ProbeResult, error) {
+	result, err := probeServiceUDP(service, timeout, q3Query, isQ3Reply)
+	if err != nil {
+		return result, err
+	}
+	result.Method = ProtocolQ3
+	if result.Online() {
+		result.Detail = NewText(i18n.KeyDetailQ3OK)
 	}
 	return result, nil
 }

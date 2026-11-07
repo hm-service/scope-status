@@ -59,6 +59,9 @@ const (
 	KeyConfigServicePort             Key = "config.error.service-port"
 	KeyConfigServicePortRange        Key = "config.error.service-port-range"
 	KeyConfigServiceProtocol         Key = "config.error.service-protocol"
+	KeyConfigServicePayload          Key = "config.error.service-payload"
+	KeyConfigServicePayloadMissing   Key = "config.error.service-payload-missing"
+	KeyConfigServicePayloadUnused    Key = "config.error.service-payload-unused"
 	KeyConfigServiceConnectCmd       Key = "config.error.service-connect-cmd"
 	KeyConfigLinksNotList            Key = "config.error.links-not-list"
 	KeyConfigLinkNotObject           Key = "config.error.link-not-object"
@@ -96,6 +99,8 @@ const (
 	KeyDetailUDPRefused   Key = "probe.detail.udp-refused"
 	KeyDetailUDPBytes     Key = "probe.detail.udp-bytes"
 	KeyDetailA2SOK        Key = "probe.detail.a2s-ok"
+	KeyDetailQ3OK         Key = "probe.detail.q3-ok"
+	KeyDetailUDPBadReply  Key = "probe.detail.udp-bad-reply"
 	KeyDetailLinkStatus   Key = "probe.detail.link-status"
 	KeyDetailLinkMismatch Key = "probe.detail.link-mismatch"
 	KeyDetailLinkFailed   Key = "probe.detail.link-failed"
@@ -194,8 +199,11 @@ var zh = map[Key]string{
 	KeyConfigServiceHost:             "服务 %s 缺少非空字符串字段 host",
 	KeyConfigServicePort:             "服务 %s 的 port 必须是整数",
 	KeyConfigServicePortRange:        "服务 %s 的 port 超出 1-65535",
-	KeyConfigServiceProtocol:         "服务 %s 的 protocol 只支持 udp / tcp / a2s，收到 %s",
+	KeyConfigServiceProtocol:         "服务 %s 的 protocol 只支持 udp / tcp / a2s / q3，收到 %s",
 	KeyConfigServiceConnectCmd:       "服务 %s 的 connect_cmd 必须是字符串",
+	KeyConfigServicePayload:          "服务 %s 的 payload 必须是十六进制字节（可以空格分隔）",
+	KeyConfigServicePayloadMissing:   "服务 %s 是 udp 协议，必须写 payload：UDP 没有握手，空包发过去谁都不会答",
+	KeyConfigServicePayloadUnused:    "服务 %s 的协议是 %s，自带查询载荷，不要写 payload",
 	KeyConfigLinksNotList:            "links 必须是数组",
 	KeyConfigLinkNotObject:           "links[%d] 必须是对象",
 	KeyConfigLinkName:                "links[%d] 缺少非空字符串字段 name",
@@ -229,6 +237,8 @@ var zh = map[Key]string{
 	KeyDetailUDPRefused:   "端口拒绝（ICMP unreachable）",
 	KeyDetailUDPBytes:     "收到 %d 字节回应",
 	KeyDetailA2SOK:        "A2S_INFO 有回应",
+	KeyDetailQ3OK:         "Q3 getinfo 有回应",
+	KeyDetailUDPBadReply:  "回包不是该协议的应答（端口上可能不是这个服务）",
 	KeyDetailLinkStatus:   "HTTP %d",
 	KeyDetailLinkMismatch: "HTTP %d（期望 %d）",
 	KeyDetailLinkFailed:   "连不上：%s",
@@ -318,8 +328,11 @@ var en = map[Key]string{
 	KeyConfigServiceHost:             "service %s has no non-empty string field host",
 	KeyConfigServicePort:             "port of service %s must be an integer",
 	KeyConfigServicePortRange:        "port of service %s is out of 1-65535",
-	KeyConfigServiceProtocol:         "protocol of service %s must be udp / tcp / a2s, got %s",
+	KeyConfigServiceProtocol:         "protocol of service %s must be udp / tcp / a2s / q3, got %s",
 	KeyConfigServiceConnectCmd:       "connect_cmd of service %s must be a string",
+	KeyConfigServicePayload:          "payload of service %s must be hex bytes (spaces allowed)",
+	KeyConfigServicePayloadMissing:   "service %s uses udp, payload is required: UDP has no handshake and nobody answers an empty datagram",
+	KeyConfigServicePayloadUnused:    "service %s uses protocol %s which carries its own query, drop payload",
 	KeyConfigLinksNotList:            "links must be a list",
 	KeyConfigLinkNotObject:           "links[%d] must be a mapping",
 	KeyConfigLinkName:                "links[%d] has no non-empty string field name",
@@ -353,6 +366,8 @@ var en = map[Key]string{
 	KeyDetailUDPRefused:   "port refused (ICMP unreachable)",
 	KeyDetailUDPBytes:     "got %d bytes back",
 	KeyDetailA2SOK:        "A2S_INFO answered",
+	KeyDetailQ3OK:         "Q3 getinfo answered",
+	KeyDetailUDPBadReply:  "reply is not this protocol's answer (the port may be another service)",
 	KeyDetailLinkStatus:   "HTTP %d",
 	KeyDetailLinkMismatch: "HTTP %d (want %d)",
 	KeyDetailLinkFailed:   "unreachable: %s",
