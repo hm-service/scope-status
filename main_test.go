@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hm-service/scope-status/core"
 )
@@ -207,6 +208,44 @@ func TestLoadEnvMaxEventConcurrency(t *testing.T) {
 	for _, bad := range []string{"0", "-1", "abc"} {
 		if _, err := load(bad); err == nil {
 			t.Fatalf("MAX_EVENT_CONCURRENCY=%q 应该拒绝启动", bad)
+		}
+	}
+}
+
+// STREAM_INTERVAL 只判负数会漏掉 NaN / Inf / 溢出：它们和任何数比较都为假，
+// 而 float64 转 int64 溢出会得到负 Duration，SSE 循环于是静默不启动。
+func TestLoadEnvStreamInterval(t *testing.T) {
+	load := func(value string) (envConfig, error) {
+		t.Setenv("AUTH_TOKEN", testAuthToken)
+		t.Setenv("SESSION_SIGNING_KEY", testSessionKey)
+		t.Setenv("STREAM_INTERVAL", value)
+		return loadEnv()
+	}
+
+	cfg, err := load("")
+	if err != nil {
+		t.Fatalf("不设 STREAM_INTERVAL 该走默认值：%v", err)
+	}
+	if cfg.StreamInterval != 5*time.Second {
+		t.Fatalf("默认值 = %v，想要 5s", cfg.StreamInterval)
+	}
+
+	cfg, err = load("0")
+	if err != nil {
+		t.Fatalf("0 是合法的按需模式：%v", err)
+	}
+	if cfg.StreamInterval != 0 {
+		t.Fatalf("0 应该原样保留，实际 %v", cfg.StreamInterval)
+	}
+
+	cfg, err = load("60")
+	if err != nil || cfg.StreamInterval != 60*time.Second {
+		t.Fatalf("60 应该被接受，实际 %v / %v", cfg.StreamInterval, err)
+	}
+
+	for _, bad := range []string{"abc", "NaN", "nan", "Inf", "+Inf", "-Inf", "-1", "1e10"} {
+		if _, err := load(bad); err == nil {
+			t.Fatalf("STREAM_INTERVAL=%q 应该拒绝启动", bad)
 		}
 	}
 }

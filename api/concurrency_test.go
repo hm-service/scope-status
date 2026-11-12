@@ -46,3 +46,24 @@ func TestEventGateIsIndependent(t *testing.T) {
 		t.Fatalf("/api/auth = %d，该走自己的闸门拿到 401", got.status)
 	}
 }
+
+// 回归：路由按段匹配会把 /api/events/ 也交给 SSE handler，闸门如果只认字面量 "/api/events"，
+// 一条尾斜杠就能把长连接塞进业务闸门，把 b9a872f 的隔离整个绕过去。
+func TestEventGateIgnoresTrailingSlash(t *testing.T) {
+	env := testenv.NewWith(t, testenv.DefaultSource, testenv.Options{MaxAPIConcurrency: 1, MaxEventConcurrency: 1})
+
+	holder := &http.Client{Transport: env.Client.Transport}
+	stream, err := holder.Get(env.BaseURL + "/api/events/")
+	if err != nil || stream.StatusCode != http.StatusOK {
+		t.Fatalf("开 SSE 失败：%v（状态 %d）", err, stream.StatusCode)
+	}
+	defer stream.Body.Close()
+
+	quick := &http.Client{Transport: env.Client.Transport, Timeout: 700 * time.Millisecond}
+	if got := callWith(t, env, quick, http.MethodGet, "/api/stats", ""); got.status != http.StatusOK {
+		t.Fatalf("/api/stats = %d，尾斜杠的 SSE 不该占业务闸门", got.status)
+	}
+	if _, err := quick.Get(env.BaseURL + "/api/events/"); err == nil {
+		t.Fatal("事件闸门已占满，第二条尾斜杠 SSE 不该还能进")
+	}
+}

@@ -186,7 +186,7 @@ func (m *Monitor) Refresh() (*core.Snapshot, error) {
 	m.flight = running
 	m.flightMu.Unlock()
 
-	snapshot, err := m.collect()
+	snapshot, err := m.collect(m.Source())
 
 	m.mu.Lock()
 	if err == nil {
@@ -211,18 +211,37 @@ func (m *Monitor) Refresh() (*core.Snapshot, error) {
 	return snapshot, nil
 }
 
-// Reload 重读数据目录里的配置：先解析新的，失败就原样保留旧配置。
-func (m *Monitor) Reload() (*core.Source, error) {
+// Reload 重读数据目录里的配置，并按新配置立刻探一轮；两件事都成功才换配置。
+//
+// 解析失败或探测失败都保持旧配置、旧快照继续生效——不能出现「回了 500，状态却已经变了」：
+// 用户看到报错，看板却空了，也没法判断现在生效的是哪一份配置。
+func (m *Monitor) Reload() (*core.Source, *core.Snapshot, error) {
 	source, err := store.LoadSource(m.sourcePath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	// 与正在跑的那一轮串行：否则旧配置的探测可能在我们换完配置之后才把快照写回去
+	m.flightMu.Lock()
+	if running := m.flight; running != nil {
+		m.flightMu.Unlock()
+		<-running.done
+		m.flightMu.Lock()
+	}
+	snapshot, probeErr := m.collect(source)
+	m.flightMu.Unlock()
+	if probeErr != nil {
+		return nil, nil, probeErr
+	}
+
 	m.mu.Lock()
 	m.source = source
-	m.snapshot = nil
+	m.snapshot = snapshot
+	m.lastDurationMs = snapshot.DurationMs
 	m.reloadCount++
+	view := m.view
 	m.mu.Unlock()
-	return source, nil
+	m.Broadcast("snapshot", snapshotPayload{snapshot: snapshot, reused: false, view: view})
+	return source, snapshot, nil
 }
 
 // Stream 恒定节奏地探测；长期没人订阅就降到每分钟一次。
@@ -312,8 +331,7 @@ type addressJob struct {
 }
 
 // collect 把所有条目一起丢进有界的并发池：总耗时约等于最慢的那一个探测。
-func (m *Monitor) collect() (*core.Snapshot, error) {
-	source := m.Source()
+func (m *Monitor) collect(source *core.Source) (*core.Snapshot, error) {
 	started := time.Now()
 	probe := source.Probe
 

@@ -5,11 +5,14 @@ import * as api from './api'
 import { ApiError, errorMessage } from './api'
 import { lang, setLang, t, type I18nKey, type Lang } from './i18n'
 import { closeStream, connectStream, streamConnected, type StreamState } from './sse'
-import type { Attachment, Peer, PeerGroup, Link, Message, MessageInput, MessagesFrame, Service, Snapshot, Summary } from './types'
+import type { Attachment, PeerGroup, Link, Message, MessageInput, MessagesFrame, Service, Snapshot, Summary } from './types'
 import { formatDuration } from './utils/format'
 import { formatTime, shortStamp, tickNow } from './utils/time'
 
-const STREAM_SILENCE_MS = 30000
+// 静默上限：至少三个推送周期，且不低于 45 秒——服务端每 15 秒发一个保活帧，
+// 固定 30 秒既扛不住 STREAM_INTERVAL=60，也扛不住探测连轮失败时长时间没有 snapshot。
+const STREAM_SILENCE_FLOOR_MS = 45000
+const STREAM_SILENCE_MIN_FRAMES = 3
 const TOPOLOGY_STORAGE_KEY = 'scope-status-topology'
 // 读到哪儿的记号：所有消息里最近一次活动的 Unix 毫秒
 const MESSAGES_READ_KEY = 'scope-status-messages-read'
@@ -58,6 +61,8 @@ export const state = reactive({
   stream: 'connecting' as StreamState,
   lastFrameAt: 0,
   streamInterval: 0,
+  // 页脚现在挂着的错误是不是「SSE 静默」：是的话收到推送就自动摘掉
+  streamSilent: false,
   error: null as string | null,
   notice: null as { message: string; tone: NoticeTone } | null,
   refreshing: false,
@@ -156,30 +161,10 @@ export const linksGroupCount = computed(() =>
   links.value.length ? t('group.online', { online: onlineCount(links.value), total: links.value.length }) : '',
 )
 
-/** 优先用后端分好的 groups；没有就按 kind 在前端兜底分组。 */
+/** 分组只由后端算：服务端每帧都给 groups，前端不再维护第二套分组规则。 */
 export function resolveGroups(payload: Snapshot | null): PeerGroup[] {
-  if (!payload) return []
-  if (Array.isArray(payload.groups)) {
-    return payload.groups.filter((group) => group.peers && group.peers.length)
-  }
-  const order = new Map((payload.categories || []).map((category, index) => [category.id, category.order ?? index]))
-  const buckets = new Map<string, Peer[]>()
-  for (const peer of payload.peers || []) {
-    const id = peer.kind || 'peer'
-    const bucket = buckets.get(id)
-    if (bucket) bucket.push(peer)
-    else buckets.set(id, [peer])
-  }
-  return [...buckets.entries()]
-    .map(([id, peers]) => ({
-      id,
-      label: id,
-      order: order.get(id) ?? 100,
-      total: peers.length,
-      online: peers.filter((peer) => peer.online).length,
-      peers,
-    }))
-    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
+  if (!payload?.groups) return []
+  return payload.groups.filter((group) => group.peers && group.peers.length)
 }
 
 export const groups = computed(() => resolveGroups(state.snapshot))
@@ -285,6 +270,8 @@ export function connect(): void {
       const interval = payload.streamInterval ?? 0
       // 推送节奏写在状态文字里，别去改副标题——那个位置是当前 tab 的概况
       if (interval > 0) state.streamInterval = interval
+      // STREAM_INTERVAL=0：服务端没有定时循环，不会主动推快照，只能自己开口要一次
+      if (interval <= 0 && state.snapshot === null) void fetchOnDemandSnapshot()
     },
     onMessages(frame) {
       applyMessages(frame)
@@ -292,16 +279,30 @@ export function connect(): void {
     onStateChange(next) {
       state.stream = next
     },
+    onActivity() {
+      state.lastFrameAt = Date.now()
+      // 连接又冒气了：把「静默」那条错误摘掉，别让它一直挂在页脚
+      if (state.streamSilent) {
+        state.streamSilent = false
+        setError(null)
+      }
+    },
   })
 }
 
-/** SSE 长时间没有推送就自己重连一次。 */
+/** 静默多久算断线：按推送周期放宽，别把「服务端本来就没东西可推」当成断线。 */
+export function streamSilenceMs(): number {
+  return Math.max(STREAM_SILENCE_FLOOR_MS, state.streamInterval * 1000 * STREAM_SILENCE_MIN_FRAMES)
+}
+
+/** SSE 长时间一个字节都没有就自己重连一次。 */
 export function checkStreamHealth(): void {
-  if (streamConnected() && state.lastFrameAt && Date.now() - state.lastFrameAt > STREAM_SILENCE_MS) {
-    setError(t('stream.silent'))
-    closeStream()
-    connect()
-  }
+  if (!streamConnected() || !state.lastFrameAt) return
+  if (Date.now() - state.lastFrameAt <= streamSilenceMs()) return
+  state.streamSilent = true
+  setError(t('stream.silent'))
+  closeStream()
+  connect()
 }
 
 // ---------------------------------------------------------------- 消息
@@ -446,6 +447,21 @@ export async function submitCompose(): Promise<void> {
 }
 
 // ---------------------------------------------------------------- 手动刷新 / 重载
+
+/**
+ * 按需模式下自己探一次：服务端 GET /api/status 会现探，失败把错误挂到页脚。
+ * 不弹提示——这是开机自动走的路径，用户没点任何按钮。
+ */
+async function fetchOnDemandSnapshot(): Promise<void> {
+  try {
+    const payload = await api.fetchStatus(false)
+    if (!payload) return
+    state.lastFrameAt = Date.now()
+    applyPayload(payload)
+  } catch (error) {
+    setError(errorMessage(error))
+  }
+}
 
 /** 刷新按钮：强制探一次（GET /api/status?force=1）。 */
 export async function refreshStatus(): Promise<void> {

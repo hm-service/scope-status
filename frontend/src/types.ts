@@ -81,12 +81,6 @@ export interface ServiceGroup {
   services?: Service[]
 }
 
-export interface CategoryInfo {
-  id: string
-  label?: string
-  order?: number
-}
-
 export interface Snapshot {
   title?: string
   method?: string
@@ -99,7 +93,6 @@ export interface Snapshot {
   summary?: Summary
   groups?: PeerGroup[]
   peers?: Peer[]
-  categories?: CategoryInfo[]
   services?: Service[]
   servicesGroups?: ServiceGroup[]
   servicesSummary?: Summary

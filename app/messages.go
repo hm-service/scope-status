@@ -1,6 +1,7 @@
 package app
 
 import (
+	"log/slog"
 	"time"
 
 	"github.com/hm-service/scope-status/core"
@@ -54,7 +55,8 @@ func (s *MessageService) Create(text string, refs []store.AttachmentRef) (*core.
 	if err != nil {
 		return nil, err
 	}
-	return message, s.publish()
+	s.publishQuietly()
+	return message, nil
 }
 
 func (s *MessageService) Update(id string, text *string, refs []store.AttachmentRef, replaceAttachments bool) (*core.Message, error) {
@@ -62,7 +64,8 @@ func (s *MessageService) Update(id string, text *string, refs []store.Attachment
 	if err != nil {
 		return nil, err
 	}
-	return message, s.publish()
+	s.publishQuietly()
+	return message, nil
 }
 
 func (s *MessageService) Delete(id string) ([]string, error) {
@@ -70,12 +73,21 @@ func (s *MessageService) Delete(id string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return removed, s.publish()
+	s.publishQuietly()
+	return removed, nil
 }
 
 func (s *MessageService) Get(id string) (*core.Message, error) { return s.store.Get(id) }
 
 func (s *MessageService) Stats() (store.MessageStats, error) { return s.store.Stats() }
+
+// publishQuietly 推一帧给订阅者。变更此时已经落盘，推帧失败不能让接口回 500：
+// 客户端重试会再建一条重复消息（或对一个已删除的 id 拿到 404），「操作是否生效」必须和响应一致。
+func (s *MessageService) publishQuietly() {
+	if err := s.publish(); err != nil {
+		slog.Error("messages broadcast failed", "error", err.Error())
+	}
+}
 
 func (s *MessageService) publish() error {
 	payload, err := s.Payload()

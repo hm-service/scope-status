@@ -155,6 +155,11 @@ func TestParseSourceErrors(t *testing.T) {
 		{"probe 不是对象", "probe: 5\n", i18n.KeyConfigProbeNotMapping},
 		{"probe.method 不认识", "probe:\n  method: arp\n", i18n.KeyConfigProbeMethod},
 		{"probe.timeout 不是数字", "probe:\n  timeout: soon\n", i18n.KeyConfigProbeTimeout},
+		{"probe.timeout 是 0", "probe:\n  timeout: 0\n", i18n.KeyConfigProbeTimeoutRange},
+		{"probe.timeout 是负数", "probe:\n  timeout: -1\n", i18n.KeyConfigProbeTimeoutRange},
+		{"probe.timeout 太大", "probe:\n  timeout: 61\n", i18n.KeyConfigProbeTimeoutRange},
+		{"probe.port 越界", "probe:\n  port: 70000\n", i18n.KeyConfigProbePortRange},
+		{"probe.port 是 0", "probe:\n  port: 0\n", i18n.KeyConfigProbePortRange},
 		{"services 不是数组", "services: 1\n", i18n.KeyConfigServicesNotList},
 		{"服务缺 host", "services:\n  - name: MC\n    port: 25565\n", i18n.KeyConfigServiceHost},
 		{"服务 port 越界", "services:\n  - name: MC\n    host: 10.0.0.9\n    port: 70000\n", i18n.KeyConfigServicePortRange},
@@ -168,6 +173,8 @@ func TestParseSourceErrors(t *testing.T) {
 		{"link 缺 url", "links:\n  - name: 面板\n", i18n.KeyConfigLinkURL},
 		{"link url 不对", "links:\n  - name: 面板\n    url: ftp://x/\n", i18n.KeyConfigLinkURLInvalid},
 		{"link expect_status 类型不对", "links:\n  - name: 面板\n    url: https://x/\n    expect_status: x\n", i18n.KeyConfigLinkExpectStatus},
+		{"link expect_status 越界", "links:\n  - name: 面板\n    url: https://x/\n    expect_status: 600\n", i18n.KeyConfigLinkExpectStatusRange},
+		{"link expect_status 太小", "links:\n  - name: 面板\n    url: https://x/\n    expect_status: 99\n", i18n.KeyConfigLinkExpectStatusRange},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

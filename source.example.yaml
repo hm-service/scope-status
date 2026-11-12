@@ -59,7 +59,7 @@ services:
 
 # 网站：url 是给人点开的；probe_url 是探测地址，不写就探 url 本身
 links:
-  # 探测地址要能解析：解析不了是硬错误，会把 SSE 循环直接停掉
+  # 探测地址要能解析：解析不了不是「这条不通」，而是整轮探测报错、这一轮不出快照
   - name: 示例站点
     url: https://example.com/
     expect_status: 200

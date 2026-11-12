@@ -101,6 +101,51 @@ func TestUpdateAndDelete(t *testing.T) {
 	}
 }
 
+// 回归（P0）：编辑与删除并发时，两个请求都成功，但删除必须作数。
+// 之前 Update 先把整份 json 读进内存、改完再整份写回，中途 Delete 写的 isDeleted 会被覆盖掉：
+// 消息复活，而附件已经被 Sweep 回收——池子按内容寻址，删了不可恢复。
+func TestConcurrentUpdateAndDeleteKeepsDeletion(t *testing.T) {
+	store := newStore(t, 1<<20)
+	attachment, err := store.SaveFile("a.txt", strings.NewReader("attachment body"), -1)
+	if err != nil {
+		t.Fatalf("上传失败：%v", err)
+	}
+	message := create(t, store, "原文", []AttachmentRef{{SHA256: attachment.SHA256, Name: attachment.Name}})
+
+	// 大正文把「读进来」和「写回去」之间的窗口拉宽；加锁之后这个窗口里不存在别的写入者
+	huge := strings.Repeat("x", 4<<20)
+	start := make(chan struct{})
+	updateDone := make(chan error, 1)
+	deleteDone := make(chan error, 1)
+	go func() {
+		<-start
+		_, err := store.Update(message.ID, &huge, nil, false, 1)
+		updateDone <- err
+	}()
+	go func() {
+		<-start
+		_, err := store.Delete(message.ID)
+		deleteDone <- err
+	}()
+	close(start)
+	if err := <-deleteDone; err != nil {
+		t.Fatalf("删除不该失败：%v", err)
+	}
+	if err := <-updateDone; err != nil && errorKey(t, err) != i18n.KeyMessageDeleted {
+		t.Fatalf("并发编辑只允许成功或「已删除」，实际 %v", err)
+	}
+
+	// 谁先谁后都行，但结果必须一致：要么消息还在（编辑先、删除失败不可能——删除不会失败），
+	// 要么消息已被删除。删除发生在后面时必须留下「已删除」，不能复活。
+	messages, err := store.List()
+	if err != nil {
+		t.Fatalf("列表失败：%v", err)
+	}
+	if len(messages) != 0 {
+		t.Fatalf("删除与编辑并发后消息复活了：%+v", messages)
+	}
+}
+
 // 删除只回收没人引用的附件：还有别的消息引用着就得留着。
 func TestDeleteSweepsOnlyUnreferencedFiles(t *testing.T) {
 	store := newStore(t, 1024)

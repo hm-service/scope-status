@@ -81,18 +81,14 @@ func (p Properties) MarshalJSON() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Category 是一个展示分组。内置分类的组名走文案表，配置里写了 label 就用配置的。
+// Category 是一个展示分组。组名只有一条来源：内置分类的文案表。
 type Category struct {
 	ID       string
-	Label    string
 	LabelKey i18n.Key
 	Order    int
 }
 
 func (c Category) Render(lang i18n.Lang) string {
-	if c.Label != "" {
-		return c.Label
-	}
 	if c.LabelKey != "" {
 		return i18n.T(lang, c.LabelKey)
 	}
@@ -136,6 +132,9 @@ type ProbeConfig struct {
 func DefaultProbeConfig() ProbeConfig {
 	return ProbeConfig{Method: MethodICMP, Timeout: 2 * time.Second, Port: 80, Concurrency: 16, Count: 1}
 }
+
+// maxProbeTimeoutSeconds 是 probe.timeout 的上界：一轮探测最多等这么久，再大就等于没有超时。
+const maxProbeTimeoutSeconds = 60
 
 // Peer 是「会被探测的一个条目」：peers 块和 cloud_servers 块解析完都长这样。
 // Kind 区分 friend / server / cloud；Category 直接等于 Kind（分组走内置名字与顺序）。
@@ -374,12 +373,19 @@ func parseProbe(node *yaml.Node) (ProbeConfig, error) {
 		if err != nil {
 			return probe, err
 		}
+		// 0 在 net.DialTimeout / http.Client.Timeout 里等于「不设超时」：一个挂住的地址能把整轮探测拖死
+		if timeout <= 0 || timeout > maxProbeTimeoutSeconds {
+			return probe, ConfigError(i18n.KeyConfigProbeTimeoutRange, timeout)
+		}
 		probe.Timeout = time.Duration(timeout * float64(time.Second))
 	}
 	if field := pairs.get("port"); field != nil {
 		port, err := wantInt(field, i18n.KeyConfigProbePort)
 		if err != nil {
 			return probe, err
+		}
+		if port < 1 || port > 65535 {
+			return probe, ConfigError(i18n.KeyConfigProbePortRange, port)
 		}
 		probe.Port = port
 	}
@@ -773,6 +779,9 @@ func parseLinks(node *yaml.Node) ([]Link, error) {
 			status, err := wantInt(statusNode, i18n.KeyConfigLinkExpectStatus, name)
 			if err != nil {
 				return nil, err
+			}
+			if status < 100 || status > 599 {
+				return nil, ConfigError(i18n.KeyConfigLinkExpectStatusRange, name)
 			}
 			link.ExpectStatus = status
 		}

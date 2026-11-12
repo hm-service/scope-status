@@ -11,6 +11,8 @@ export interface StreamHandlers {
   onMessages(frame: MessagesFrame): void
   onHello(payload: { streamInterval?: number }): void
   onStateChange(state: StreamState): void
+  /** 收到任意字节（含每 15 秒一个的注释帧）：只用来证明连接还活着。 */
+  onActivity(): void
 }
 
 /** 断线后多久重连一次；服务端每 15 秒发一个注释帧保活，够区分「静默」与「已死」。 */
@@ -80,6 +82,9 @@ async function readFrames(body: ReadableStream<Uint8Array>, handlers: StreamHand
   for (;;) {
     const { value, done } = await reader.read()
     if (done) return
+    // 保活帧也算「连接活着」：只看 snapshot/hello 的话，探测一直失败或 STREAM_INTERVAL 很大时
+    // 前端会误判静默并反复重连
+    handlers.onActivity()
     buffer += decoder.decode(value, { stream: true })
     let end = buffer.indexOf('\n\n')
     while (end >= 0) {
@@ -94,7 +99,7 @@ function dispatch(block: string, handlers: StreamHandlers): void {
   let name = 'message'
   const data: string[] = []
   for (const line of block.split('\n')) {
-    if (line.startsWith(':')) continue // 注释帧（保活）不往上抛
+    if (line.startsWith(':')) continue // 注释帧（保活）：存活时间已经由 onActivity 记过
     const colon = line.indexOf(':')
     const field = colon < 0 ? line : line.slice(0, colon)
     let value = colon < 0 ? '' : line.slice(colon + 1)

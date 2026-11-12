@@ -17,6 +17,10 @@ const sessionVersion = "v1"
 // sessionNonceLen 是每条 token 的随机部分：16 字节够唯一，token 也不会太长。
 const sessionNonceLen = 16
 
+// sessionEncoding 用 Strict 变体：非规范 base64（末字符带多余的高位）能让同一段字节有好几种写法，
+// 「改一个字符」也能解出一模一样的签名，等于给验签开了后门。
+var sessionEncoding = base64.RawURLEncoding.Strict()
+
 // SessionSigner 签发与校验无状态的会话 token：
 //
 //	<base64url(exp|nonce)>.<base64url(HMAC-SHA256(key, "v1|"+前面那串))>
@@ -49,11 +53,11 @@ func (s *SessionSigner) Valid(token string) bool {
 	if !found || payload == "" || encoded == "" || strings.Contains(encoded, ".") {
 		return false
 	}
-	signature, err := base64.RawURLEncoding.DecodeString(encoded)
+	signature, err := sessionEncoding.DecodeString(encoded)
 	if err != nil || subtle.ConstantTimeCompare(signature, s.sign(payload)) != 1 {
 		return false
 	}
-	plain, err := base64.RawURLEncoding.DecodeString(payload)
+	plain, err := sessionEncoding.DecodeString(payload)
 	if err != nil {
 		return false
 	}
@@ -65,7 +69,7 @@ func (s *SessionSigner) Valid(token string) bool {
 	if err != nil {
 		return false
 	}
-	nonce, err := base64.RawURLEncoding.DecodeString(rawNonce)
+	nonce, err := sessionEncoding.DecodeString(rawNonce)
 	if err != nil || len(nonce) != sessionNonceLen {
 		return false
 	}

@@ -70,10 +70,13 @@ const (
 	KeyConfigLinkURLInvalid          Key = "config.error.link-url-invalid"
 	KeyConfigLinkProbeURL            Key = "config.error.link-probe-url"
 	KeyConfigLinkExpectStatus        Key = "config.error.link-expect-status"
+	KeyConfigLinkExpectStatusRange   Key = "config.error.link-expect-status-range"
 	KeyConfigProbeNotMapping         Key = "config.error.probe-not-mapping"
 	KeyConfigProbeMethod             Key = "config.error.probe-method"
 	KeyConfigProbeTimeout            Key = "config.error.probe-timeout"
+	KeyConfigProbeTimeoutRange       Key = "config.error.probe-timeout-range"
 	KeyConfigProbePort               Key = "config.error.probe-port"
+	KeyConfigProbePortRange          Key = "config.error.probe-port-range"
 	KeyConfigProbeConcurrency        Key = "config.error.probe-concurrency"
 	KeyConfigProbeCount              Key = "config.error.probe-count"
 )
@@ -211,10 +214,13 @@ var zh = map[Key]string{
 	KeyConfigLinkURLInvalid:          "链接 %s 的%s %s 必须是 http(s):// 开头的完整地址",
 	KeyConfigLinkProbeURL:            "链接 %s 的 probe_url 必须是字符串",
 	KeyConfigLinkExpectStatus:        "链接 %s 的 expect_status 必须是整数",
+	KeyConfigLinkExpectStatusRange:   "链接 %s 的 expect_status 超出 100-599",
 	KeyConfigProbeNotMapping:         "probe 必须是对象",
 	KeyConfigProbeMethod:             "probe.method 只支持 icmp / tcp / http，收到 %s",
 	KeyConfigProbeTimeout:            "probe.timeout 必须是数字（秒）",
+	KeyConfigProbeTimeoutRange:       "probe.timeout 必须大于 0 且不超过 60 秒，收到 %v",
 	KeyConfigProbePort:               "probe.port 必须是整数",
+	KeyConfigProbePortRange:          "probe.port 超出 1-65535，收到 %d",
 	KeyConfigProbeConcurrency:        "probe.concurrency 必须是整数",
 	KeyConfigProbeCount:              "probe.count 必须是整数",
 
@@ -340,10 +346,13 @@ var en = map[Key]string{
 	KeyConfigLinkURLInvalid:          "%s of link %s must be an absolute http(s):// URL: %s",
 	KeyConfigLinkProbeURL:            "probe_url of link %s must be a string",
 	KeyConfigLinkExpectStatus:        "expect_status of link %s must be an integer",
+	KeyConfigLinkExpectStatusRange:   "expect_status of link %s is out of 100-599",
 	KeyConfigProbeNotMapping:         "probe must be a mapping",
 	KeyConfigProbeMethod:             "probe.method must be icmp / tcp / http, got %s",
 	KeyConfigProbeTimeout:            "probe.timeout must be a number of seconds",
+	KeyConfigProbeTimeoutRange:       "probe.timeout must be greater than 0 and at most 60 seconds, got %v",
 	KeyConfigProbePort:               "probe.port must be an integer",
+	KeyConfigProbePortRange:          "probe.port is out of 1-65535, got %d",
 	KeyConfigProbeConcurrency:        "probe.concurrency must be an integer",
 	KeyConfigProbeCount:              "probe.count must be an integer",
 

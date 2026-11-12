@@ -37,6 +37,9 @@ type Options struct {
 	MaxAuthConcurrency   int
 	MaxEventConcurrency  int
 	MaxStaticConcurrency int
+	// Stopping 在优雅退出开始时关闭：SSE 是长连接，Shutdown 不会取消在途请求的 context，
+	// 不主动让它们收尾，每次停机都要等满宽限期再强关。
+	Stopping <-chan struct{}
 }
 
 // 五道闸门各自独立：一个端点被打满，不让别的端点跟着陪葬。
@@ -91,7 +94,7 @@ func (s *Server) accessLog(next http.Handler) http.Handler {
 	return log.Middleware(next)
 }
 
-// limit 按路径挑闸门：四道各自独立，一个端点被打满不牵连同层。
+// limit 按路径挑闸门：五道各自独立，一个端点被打满不牵连同层。
 func (s *Server) limit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		semaphore := s.gate(r.URL.Path)
@@ -115,7 +118,12 @@ func (s *Server) limit(next http.Handler) http.Handler {
 // /api/events 单开一道是因为 SSE 是长连接：一条连接要占着名额到客户端断开，
 // 挂在业务闸门上，几十个看客就能把整个 /api 饿死（线上出过一次，128 条 SSE 顶满）。
 func (s *Server) gate(path string) chan struct{} {
+	// 路由层按段匹配、两端 "/" 全被 Trim 掉，所以 /api/events/ 走的仍是 SSE handler；
+	// 闸门必须按同一个路径判定，否则一条尾斜杠就能把长连接塞进业务闸门。
+	path = strings.TrimRight(path, "/")
 	switch {
+	case path == "":
+		return s.staticSem
 	case path == "/livez":
 		return nil
 	case path == "/readyz":

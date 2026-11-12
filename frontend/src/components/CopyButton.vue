@@ -7,18 +7,52 @@ import { showNotice } from '../store'
 const props = defineProps<{ text: string; title: string }>()
 const copied = ref(false)
 
-/** 复制按钮：成功后短暂变成「已复制」，失败给出提示（http 下没有 clipboard 也要说一声）。 */
-async function copy(): Promise<void> {
+/**
+ * 内网多半是明文 http：那种页面上没有 navigator.clipboard（只在安全上下文存在），
+ * 所以退回「临时 textarea + 选中 + execCommand」。两条都失败才提示。
+ */
+function fallbackCopy(text: string): boolean {
+  const area = document.createElement('textarea')
+  area.value = text
+  area.setAttribute('readonly', '')
+  area.style.position = 'fixed'
+  area.style.opacity = '0'
+  document.body.appendChild(area)
+  area.select()
   try {
-    await navigator.clipboard.writeText(props.text)
-    copied.value = true
-    window.setTimeout(() => {
-      copied.value = false
-    }, 1500)
-  } catch (error) {
-    copied.value = false
-    showNotice(t('notice.copyFailed', { message: errorMessage(error) }), 'bad')
+    return document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    document.body.removeChild(area)
   }
+}
+
+/** 复制按钮：成功后短暂变成「已复制」，失败给出提示。 */
+async function copy(): Promise<void> {
+  let failure = ''
+  try {
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(props.text)
+    } else if (!fallbackCopy(props.text)) {
+      throw new Error('execCommand copy failed')
+    }
+  } catch (error) {
+    if (fallbackCopy(props.text)) {
+      failure = ''
+    } else {
+      failure = errorMessage(error)
+    }
+  }
+  if (failure) {
+    copied.value = false
+    showNotice(t('notice.copyFailed', { message: failure }), 'bad')
+    return
+  }
+  copied.value = true
+  window.setTimeout(() => {
+    copied.value = false
+  }, 1500)
 }
 </script>
 

@@ -58,6 +58,9 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-s.opts.Stopping:
+			// 进程要退了：主动收尾，别让 Shutdown 等满宽限期再强关
+			return
 		case <-ping.C:
 			if _, err := io.WriteString(w, ": ping\n\n"); err != nil {
 				return

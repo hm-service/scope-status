@@ -8,10 +8,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hm-service/scope-status/core"
@@ -26,6 +28,10 @@ type MessageStore struct {
 	root      string
 	files     string
 	maxUpload int64
+	// mu 串行化「读一份 json → 改 → 整份写回」以及紧随其后的附件回收。
+	// 不加锁时并发的编辑与删除都成功：删除被旧快照覆盖回去（消息复活），
+	// 而附件已被 Sweep 收走，池里按内容寻址的文件删了就不可恢复。
+	mu sync.Mutex
 }
 
 type AttachmentRef struct {
@@ -279,6 +285,8 @@ func (s *MessageStore) Stats() (MessageStats, error) {
 
 // Create 新建一条消息，返回它的完整内容。
 func (s *MessageStore) Create(text string, refs []AttachmentRef, now time.Time) (*core.Message, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	attachments, err := s.resolveAttachments(refs)
 	if err != nil {
 		return nil, err
@@ -300,8 +308,10 @@ func (s *MessageStore) Create(text string, refs []AttachmentRef, now time.Time) 
 	return s.Get(id)
 }
 
-// Update 改正文 / 附件。
+// Update 改正文 / 附件。读改写整段在同一把锁下，和 Delete 不会交错。
 func (s *MessageStore) Update(id string, text *string, refs []AttachmentRef, replaceAttachments bool, nowMs int64) (*core.Message, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	data, err := s.locate(id)
 	if err != nil {
 		return nil, err
@@ -327,7 +337,10 @@ func (s *MessageStore) Update(id string, text *string, refs []AttachmentRef, rep
 }
 
 // Delete 打删除标志位，然后扫描引用回收没人用的池内文件。
+// 标志位与回收在同一把锁下，编辑请求不可能拿着「未删除」的旧快照插进来。
 func (s *MessageStore) Delete(id string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	data, err := s.locate(id)
 	if err != nil {
 		return nil, err
@@ -336,11 +349,24 @@ func (s *MessageStore) Delete(id string) ([]string, error) {
 	if err := s.write(id, data); err != nil {
 		return nil, err
 	}
-	return s.Sweep()
+	// 标志位已经落盘：回收失败只记日志。回 500 会让客户端以为没删掉，
+	// 重试却拿到 404——「操作是否生效」必须和响应一致。
+	removed, err := s.sweep()
+	if err != nil {
+		slog.Error("message sweep failed", "id", id, "error", err.Error())
+		return nil, nil
+	}
+	return removed, nil
 }
 
 // Sweep 扫描所有 message*.json 的引用，删掉没人引用的池内文件。
 func (s *MessageStore) Sweep() ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sweep()
+}
+
+func (s *MessageStore) sweep() ([]string, error) {
 	ids, err := s.ids()
 	if err != nil {
 		return nil, err
@@ -576,6 +602,7 @@ func (s *MessageStore) decode(id string) (*messageFile, error) {
 }
 
 // write 先写临时文件再 rename，避免读到写了一半的 json。
+// 临时文件名带随机后缀：同一 id 的两次写不会落到同一个路径上互相截断。
 func (s *MessageStore) write(id string, data *messageFile) error {
 	if err := os.MkdirAll(s.root, 0o700); err != nil {
 		return err
@@ -584,7 +611,11 @@ func (s *MessageStore) write(id string, data *messageFile) error {
 	if err != nil {
 		return err
 	}
-	temp := filepath.Join(s.root, "."+id+core.MessageSuffix+".tmp")
+	suffix, err := randomHex(6)
+	if err != nil {
+		return err
+	}
+	temp := filepath.Join(s.root, "."+id+core.MessageSuffix+"."+suffix+".tmp")
 	if err := os.WriteFile(temp, append(body, '\n'), 0o600); err != nil {
 		return err
 	}

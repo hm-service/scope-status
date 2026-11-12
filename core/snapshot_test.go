@@ -19,8 +19,8 @@ func peerStatuses(categories []string, online []bool) []PeerStatus {
 
 func TestGroupPeersOrderAndCounts(t *testing.T) {
 	source := &Source{Categories: []Category{
-		{ID: "server", Label: "服务器", Order: 2},
-		{ID: "peer", Label: "对端", Order: 1},
+		{ID: "server", LabelKey: i18n.KeyCategoryServer, Order: 2},
+		{ID: "peer", LabelKey: i18n.KeyCategoryOther, Order: 1},
 	}}
 	groups := GroupPeers(source, peerStatuses(
 		[]string{"peer", "server", "peer", "peer"},

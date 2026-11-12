@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"net/netip"
@@ -29,6 +30,8 @@ const (
 	exitShutdownForced = 254
 	// 会话 token 的有效期：过期就得重新粘一次 AUTH_TOKEN
 	sessionTTL = 30 * 24 * time.Hour
+	// STREAM_INTERVAL 的上界（秒）：一天。再大没有意义，且要挡住浮点转 Duration 的溢出
+	maxStreamSeconds = 86400.0
 )
 
 // 三个密钥的形状卡死：够长的随机串，字符集只留大小写字母、数字与下划线，写错直接拒绝启动
@@ -94,6 +97,9 @@ func run() int {
 	}
 	// 会话签名器：密钥从环境变量来，多副本共用同一把就能互相认会话
 	sessions := core.NewSessionSigner([]byte(cfg.SessionSigningKey), sessionTTL)
+	// 优雅退出开始时关掉：让 SSE 长连接自己收尾
+	stopping := make(chan struct{})
+
 	handler := api.New(api.Options{
 		App:                  application,
 		Static:               static,
@@ -106,6 +112,7 @@ func run() int {
 		MaxAuthConcurrency:   cfg.MaxAuthConcurrency,
 		MaxEventConcurrency:  cfg.MaxEventConcurrency,
 		MaxStaticConcurrency: cfg.MaxStaticConcurrency,
+		Stopping:             stopping,
 	}).Handler()
 
 	// 先占住端口再打启动日志：绑不上就直接失败，不留下一句"已启动"
@@ -154,6 +161,7 @@ func run() int {
 		logger.Info("shutdown signal received", "signal", received.String())
 	}
 
+	close(stopping)
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownGrace)
 	defer shutdownCancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
@@ -226,8 +234,9 @@ func loadEnv() (envConfig, error) {
 	if err != nil {
 		return envConfig{}, err
 	}
-	if streamSeconds < 0 {
-		return envConfig{}, fmt.Errorf("STREAM_INTERVAL must not be negative, got %v", streamSeconds)
+	// 上界不只是「别太离谱」：float64 超出纳秒可表示范围会静默转成负 Duration，SSE 循环就不启动了
+	if streamSeconds < 0 || streamSeconds > maxStreamSeconds {
+		return envConfig{}, fmt.Errorf("STREAM_INTERVAL must be between 0 and %v seconds, got %v", maxStreamSeconds, streamSeconds)
 	}
 	maxAPI, err := envInt("MAX_API_CONCURRENCY", 128)
 	if err != nil {
@@ -314,6 +323,10 @@ func envFloat(name string, fallback float64) (float64, error) {
 	value, err := strconv.ParseFloat(raw, 64)
 	if err != nil {
 		return 0, fmt.Errorf("%s must be a number, got %q", name, raw)
+	}
+	// "NaN" / "Inf" 能被 ParseFloat 接受，但它和任何数比较都为假，所有范围校验都会漏过去
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, fmt.Errorf("%s must be a finite number, got %q", name, raw)
 	}
 	return value, nil
 }

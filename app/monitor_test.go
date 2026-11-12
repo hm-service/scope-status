@@ -208,7 +208,7 @@ func TestStreamLoopKeepsGoingAfterProbeFailure(t *testing.T) {
 
 	// 把配置修好再重载：还活着的循环应该自己接着探出快照
 	write(good)
-	if _, err := monitor.Reload(); err != nil {
+	if _, _, err := monitor.Reload(); err != nil {
 		t.Fatalf("重载失败：%v", err)
 	}
 	deadline := time.Now().Add(3 * time.Second)
@@ -270,23 +270,61 @@ func TestReload(t *testing.T) {
 	}
 
 	write("peers:\n  - name: 小明\n    kind: friend\n    addresses: [\"127.0.0.1:1\"]\n  - name: 小红\n    kind: friend\n    addresses: [\"127.0.0.1:2\"]\n")
-	reloaded, err := monitor.Reload()
+	reloaded, snapshot, err := monitor.Reload()
 	if err != nil {
 		t.Fatalf("重载失败：%v", err)
 	}
 	if len(reloaded.Peers) != 2 || monitor.ReloadCount() != 1 {
 		t.Fatalf("重载结果不对：%d / %d", len(reloaded.Peers), monitor.ReloadCount())
 	}
-	if monitor.Current() != nil {
-		t.Fatal("换了配置要丢掉旧快照")
+	if snapshot == nil || len(snapshot.Peers) != 2 {
+		t.Fatalf("重载成功就该拿到新配置探出来的快照，现在 %+v", snapshot)
 	}
 
 	write("peers: 1\n")
-	if _, err := monitor.Reload(); err == nil {
+	if _, _, err := monitor.Reload(); err == nil {
 		t.Fatal("配置写坏了应该报错")
 	}
 	if got := len(monitor.Source().Peers); got != 2 {
 		t.Fatalf("写坏了要保留旧配置，现在有 %d 个条目", got)
+	}
+}
+
+// 回归：新配置能解析、但探测失败时，必须保持旧配置与旧快照继续生效。
+// 之前是「先换配置、清快照，再探」，于是回 500 的同时新配置已经生效、看板还空掉了。
+func TestReloadKeepsOldStateWhenProbeFails(t *testing.T) {
+	dir := t.TempDir()
+	sourceFile := filepath.Join(dir, "source.yaml")
+	write := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(sourceFile, []byte(body), 0o600); err != nil {
+			t.Fatalf("写配置失败：%v", err)
+		}
+	}
+	live := listenTCP(t)
+	good := fmt.Sprintf("probe:\n  method: tcp\n  timeout: 0.3\npeers:\n  - name: 小明\n    kind: friend\n    addresses: [%q]\n", live)
+	write(good)
+	monitor := NewMonitor(parseSource(t, good), sourceFile, 0)
+	monitor.SetSnapshotView(viewStub)
+	before, err := monitor.Refresh()
+	if err != nil {
+		t.Fatalf("首轮探测失败：%v", err)
+	}
+
+	// 能解析，但域名解析不了：一轮探测整体失败
+	write(fmt.Sprintf("probe:\n  method: tcp\n  timeout: 0.3\npeers:\n  - name: 小红\n    kind: friend\n    addresses: [\"nope.invalid:1\"]\n  - name: 小刚\n    kind: friend\n    addresses: [%q]\n", live))
+	if _, _, err := monitor.Reload(); err == nil {
+		t.Fatal("探测失败的重载应该回错误")
+	}
+	if got := len(monitor.Source().Peers); got != 1 || monitor.Source().Peers[0].Name != "小明" {
+		t.Fatalf("重载失败后旧配置应该继续生效，现在有 %d 个条目", got)
+	}
+	current := monitor.Current()
+	if current == nil || current.GeneratedAt != before.GeneratedAt {
+		t.Fatalf("重载失败后旧快照应该继续生效：%+v", current)
+	}
+	if monitor.ReloadCount() != 0 {
+		t.Fatalf("没成功的重载不该计数：%d", monitor.ReloadCount())
 	}
 }
 
