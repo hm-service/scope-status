@@ -35,7 +35,7 @@ Scope Status 的设计：内网 WireGuard 连通状态看板。单文件静态�
 - 启动即失败：`AUTH_TOKEN` / `SESSION_SIGNING_KEY` 没设或形状不合规 / 配置文件不存在 / 解析不通过 / 数据目录不存在或不可写，进程直接报错退出，不做任何降级。
 - 配置路径没有第二个来源，也没有环境变量能改它；改 `DATA_DIR` 就等于改配置路径，界面上与 `/api/stats` 里显示的永远是当前生效的那一份。
 - Kube 部署时 `<DATA_DIR>/source.yaml` 由人手动放进卷（`podman cp` 或宿主目录型 PV），清单里不挂它。
-- 工具链版本在 `go.mod`、`Dockerfile`、CI、`frontend/package.json` 四处对齐（当前 go 1.27.2 / node 26.7.0 / pnpm 12.13.0）。
+- 工具链版本在 `go.mod`、`Dockerfile`、CI、`frontend/package.json` 四处对齐（当前 go 1.27.4 / node 26.13.0 / pnpm 12.18.0）。
 
 ## 2. 页面
 
